@@ -4,10 +4,16 @@ defmodule Aitrace.MixProject do
   def project do
     [
       app: :aitrace,
-      version: "0.1.0",
+      version: "0.0.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      description: "The unified observability layer for the AI Control Plane.",
+      package: [
+        maintainers: ["nshkrdotcom"],
+        licenses: ["Apache-2.0"],
+        links: %{"GitHub" => "https://github.com/nshkrdotcom/AITrace"}
+      ]
     ]
   end
 
