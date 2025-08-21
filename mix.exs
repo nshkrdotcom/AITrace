@@ -10,8 +10,8 @@ defmodule Aitrace.MixProject do
       deps: deps(),
       description: "The unified observability layer for the AI Control Plane.",
       package: [
-        maintainers: ["nshkrdotcom"],
-        licenses: ["Apache-2.0"],
+        maintainers: ["nshkrdotcom <ZeroTrust@NSHkr.com>"],
+        licenses: ["MIT"],
         links: %{"GitHub" => "https://github.com/nshkrdotcom/AITrace"}
       ]
     ]
