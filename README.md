@@ -1,5 +1,9 @@
 # AITrace
 
+<p align="center">
+  <img src="assets/ai_trace.svg" alt="AITrace logo" width="220" />
+</p>
+
 > The unified observability layer for the AI Control Plane.
 
 `AITrace` provides the unified observability layer for the AI Control Plane, transforming opaque, non-deterministic AI processes into fully interpretable and debuggable execution traces.
