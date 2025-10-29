@@ -31,65 +31,212 @@ Debugging an AI agent is fundamentally different. It is like performing forensic
 
 *   **Context:** An immutable Elixir map (`%AITrace.Context{}`) that carries the `trace_id` and the current `span_id`. This context is explicitly passed through the entire call stack of a traced operation, ensuring all telemetry is correctly correlated.
 
-## Architectural Design & API
+## Installation
 
-`AITrace` is designed as a set of ergonomic Elixir macros and functions that make instrumentation feel natural.
-
-### The Core API
+Add `aitrace` to your `mix.exs` dependencies:
 
 ```elixir
-# lib/my_app/agent.ex
+def deps do
+  [
+    {:aitrace, "~> 0.1.0"}
+  ]
+end
+```
 
-def handle_user_message(message, state) do
-  # 1. Start a new trace for the entire transaction
-  AITrace.trace "agent.handle_message" do
-    # The `trace` macro injects a `ctx` variable into the scope.
-    
-    # 2. Add point-in-time events with rich metadata.
-    AITrace.add_event(ctx, "Initial state loaded", %{agent_id: state.id})
+## Quick Start
 
-    # 3. Wrap discrete, timed operations in spans.
-    {:ok, response, new_ctx} = AITrace.span ctx, "reasoning_loop" do
-      # The `span` macro also yields a new, updated context.
-      DSPex.execute(reasoning_logic, %{message: message}, context: new_ctx)
+```elixir
+defmodule MyApp.Agent do
+  require AITrace  # Required to use the macros
+
+  def handle_user_message(message, state) do
+    # 1. Start a new trace for the entire transaction
+    AITrace.trace "agent.handle_message" do
+      # 2. Add point-in-time events with rich metadata
+      AITrace.add_event("request_received", %{message_length: String.length(message)})
+
+      # 3. Wrap discrete, timed operations in spans
+      response = AITrace.span "reasoning_loop" do
+        # Add attributes to the current span
+        AITrace.with_attributes(%{model: "gpt-4", temperature: 0.7})
+
+        # Perform reasoning
+        think_about(message)
+      end
+
+      AITrace.add_event("reasoning_complete", %{token_usage: response.tokens})
+
+      {:reply, response.answer, update_state(state)}
     end
-    
-    # new_ctx now contains the updated span information.
-    AITrace.add_event(new_ctx, "Reasoning complete", %{token_usage: response.token_usage})
-    
-    {:reply, response.answer, update_state(state)}
   end
 end
 ```
 
-### Key Design Points
+## Core API
 
-*   **Context Propagation:** The biggest challenge is passing the `ctx`. The API will provide helpers and patterns (like using a `with` block) to make this propagation clear and explicit, avoiding "magic" context passing.
-*   **OTP Integration:** The library will include helpers for stashing and retrieving the `AITrace` context in `GenServer` calls and `Oban` jobs, making it easy to continue a trace across process boundaries.
-*   **Pluggable Backends (Exporters):** `AITrace` itself is only responsible for generating telemetry data. It will use a configurable "Exporter" to send this data somewhere. This makes the system incredibly flexible.
-    *   `AITrace.Exporter.Console`: Prints human-readable traces to the terminal for local development.
-    *   `AITrace.Exporter.File`: Dumps structured JSON traces to a file.
-    *   `AITrace.Exporter.Phoenix`: (Future) A backend that sends traces over Phoenix Channels to a live UI.
-    *   `AITrace.Exporter.OpenTelemetry`: (Future) A backend that converts `AITrace` data into OTel format for integration with existing systems like Jaeger or Honeycomb.
+### Starting a Trace
 
-## Integration with the Ecosystem
+```elixir
+AITrace.trace "operation_name" do
+  # Your code here - context is stored in process dictionary
+end
+```
 
-`AITrace` is the glue that binds the entire portfolio into a single, observable system.
+### Creating Spans
 
-*   **`DSPex` Instrumentation:** `DSPex` will be modified to accept an optional `AITrace.Context`. When provided, it will automatically create spans for `llm_call`, `prompt_render`, and `output_parsing`. It will add events for which modules are being used (`Predict`, `ChainOfThought`) and log the full, raw prompt/completion data as span attributes.
+```elixir
+AITrace.span "span_name" do
+  # Timed operation - duration is automatically measured
+end
+```
 
-*   **`Altar` Instrumentation:** The host application's tool-execution wrapper (as designed in Architecture A) will use `AITrace.span` to wrap every call to `Altar.LATER.Executor`. The span's attributes will include the tool's name, arguments, and the validated result or error. This provides perfect observability into tool usage.
+### Adding Events
 
-*   **`Snakepit` Instrumentation:** `Snakepit` will be enhanced to accept an `AITrace.Context`. It will extract the `trace_id` and `span_id` and pass them as gRPC metadata to the Python worker. A corresponding Python library will then be able to reconstruct the trace context on the other side, enabling true cross-language distributed tracing. The duration of the gRPC call itself will be captured in a span.
+```elixir
+AITrace.add_event("event_name", %{key: "value"})
+AITrace.add_event("simple_event")  # No attributes
+```
 
-## The End Goal: The "Execution Cinema"
+### Adding Attributes
 
-The data generated by `AITrace` is structured to power a rich, interactive debugging UI. This UI is the ultimate user-facing product of the library.
+```elixir
+AITrace.with_attributes(%{user_id: 42, region: "us-west"})
+```
 
-### Features
-*   **Waterfall View:** A visual timeline showing the nested spans of a trace, allowing a developer to immediately spot long-running operations.
-*   **Context Explorer:** Clicking on any span reveals its full attributes—the exact prompt sent to an LLM, the JSON returned from a tool, the error message from a validation failure.
-*   **State Diff:** For spans that include agent state changes, the UI can show a "diff" of the state before and after the operation.
-*   **Causal Flow:** The UI will clearly visualize the flow of data and control, making it easy to follow the agent's "train of thought."
+### Accessing Context
 
-This is not just a log viewer; it is a purpose-built, interactive debugger for AI reasoning.
+```elixir
+ctx = AITrace.get_current_context()
+IO.inspect(ctx.trace_id)
+IO.inspect(ctx.span_id)
+```
+
+## Configuration
+
+Configure exporters in your application config:
+
+```elixir
+# config/config.exs
+config :aitrace,
+  exporters: [
+    {AITrace.Exporter.Console, verbose: true, color: true},
+    {AITrace.Exporter.File, directory: "./traces"}
+  ]
+```
+
+### Available Exporters
+
+*   **`AITrace.Exporter.Console`** - Prints human-readable traces to stdout
+  - Options: `verbose` (show attributes/events), `color` (ANSI colors)
+
+*   **`AITrace.Exporter.File`** - Writes JSON traces to files
+  - Options: `directory` (output directory, default: "./traces")
+
+### Creating Custom Exporters
+
+Implement the `AITrace.Exporter` behavior:
+
+```elixir
+defmodule MyApp.CustomExporter do
+  @behaviour AITrace.Exporter
+
+  @impl true
+  def init(opts), do: {:ok, opts}
+
+  @impl true
+  def export(trace, state) do
+    # Send trace to your backend
+    IO.inspect(trace)
+    {:ok, state}
+  end
+
+  @impl true
+  def shutdown(_state), do: :ok
+end
+```
+
+## Examples
+
+See `examples/basic_usage.exs` for a complete working example:
+
+```bash
+mix run examples/basic_usage.exs
+```
+
+Output:
+```
+Trace: b37b73325dbd626481e0ff3e89de02c8
+▸ reasoning (10.84ms) ✓
+  Attributes: %{model: "gpt-4", temperature: 0.7}
+    • reasoning_complete
+      %{thought_count: 3}
+▸ tool_execution (5.95ms) ✓
+  Attributes: %{tool: "web_search"}
+▸ response_generation (8.98ms) ✓
+  Attributes: %{tokens: 150}
+```
+
+## Architecture
+
+### Data Model
+
+- **AITrace.Context** - Carries trace_id and span_id through the call stack
+- **AITrace.Span** - Timed operations with start/end times, attributes, and events
+- **AITrace.Event** - Point-in-time annotations within spans
+- **AITrace.Trace** - Complete trace containing all spans
+
+### Runtime
+
+- **AITrace.Collector** - In-memory Agent storing active traces
+- **AITrace.Application** - Supervision tree managing the collector
+- Context stored in process dictionary for implicit propagation
+
+### Future Integrations
+
+`AITrace` is designed to integrate with other AI infrastructure:
+
+*   **DSPex** - Automatic instrumentation for LLM calls and prompt rendering
+*   **Altar** - Tool execution tracing with arguments and results
+*   **Snakepit** - Cross-language tracing via gRPC metadata
+*   **Phoenix Channels** - Real-time trace streaming to web UIs
+*   **OpenTelemetry** - Export to standard observability platforms
+
+## Development Status
+
+**✅ Implemented (v0.1.0)**
+- Core data structures (Context, Span, Event, Trace)
+- Trace and span macros with automatic timing
+- Event and attribute APIs
+- Console exporter (human-readable output)
+- File exporter (JSON format)
+- Comprehensive test suite (80 tests)
+- Working examples
+
+**🚧 Planned**
+- Phoenix Channel exporter for real-time streaming
+- OpenTelemetry exporter
+- OTP integration helpers (GenServer, Oban)
+- Cross-process context propagation
+- "Execution Cinema" web UI with waterfall views
+- DSPex, Altar, and Snakepit integrations
+
+## Testing
+
+```bash
+# Run all tests
+mix test
+
+# Run with coverage
+mix test --cover
+
+# Run example
+mix run examples/basic_usage.exs
+```
+
+## License
+
+MIT - See [LICENSE](LICENSE) for details.
+
+## Contributing
+
+AITrace is part of the AI Control Plane ecosystem. Contributions welcome!
