@@ -51,11 +51,13 @@ defmodule AITrace.MixProject do
       logo: "assets/ai_trace.svg",
       extras: [
         "README.md",
-        "CHANGELOG.md"
+        "CHANGELOG.md",
+        "LICENSE"
       ],
       groups_for_extras: [
         Guides: ["README.md"],
-        "Release Notes": ["CHANGELOG.md"]
+        "Release Notes": ["CHANGELOG.md"],
+        Legal: ["LICENSE"]
       ]
     ]
   end
