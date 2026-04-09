@@ -8,7 +8,7 @@ defmodule AITrace.MixProject do
     [
       app: :aitrace,
       version: @version,
-      elixir: "~> 1.16",
+      elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: description(),
@@ -30,7 +30,7 @@ defmodule AITrace.MixProject do
   defp deps do
     [
       {:jason, "~> 1.4"},
-      {:ex_doc, "~> 0.38", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.40.0", only: :dev, runtime: false}
     ]
   end
 
