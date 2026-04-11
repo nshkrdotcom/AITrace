@@ -4,7 +4,7 @@ defmodule AITrace.Exporter.ConsoleTest do
 
   import ExUnit.CaptureIO
 
-  alias AITrace.{Exporter.Console, Trace, Span, Event}
+  alias AITrace.{Event, Exporter.Console, Span, Trace}
 
   describe "init/1" do
     test "initializes with default options" do

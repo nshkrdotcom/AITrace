@@ -8,7 +8,7 @@ defmodule AITrace.Collector do
 
   use Agent
 
-  alias AITrace.{Trace, Span}
+  alias AITrace.{Span, Trace}
 
   @doc """
   Starts the collector agent.
@@ -47,14 +47,7 @@ defmodule AITrace.Collector do
   @spec add_span(String.t(), Span.t()) :: :ok
   def add_span(trace_id, %Span{} = span) do
     Agent.update(__MODULE__, fn traces ->
-      case Map.get(traces, trace_id) do
-        nil ->
-          traces
-
-        trace ->
-          updated_trace = Trace.add_span(trace, span)
-          Map.put(traces, trace_id, updated_trace)
-      end
+      update_trace(traces, trace_id, &Trace.add_span(&1, span))
     end)
   end
 
@@ -64,23 +57,10 @@ defmodule AITrace.Collector do
   @spec update_span(String.t(), String.t(), (Span.t() -> Span.t())) :: :ok
   def update_span(trace_id, span_id, update_fn) do
     Agent.update(__MODULE__, fn traces ->
-      case Map.get(traces, trace_id) do
-        nil ->
-          traces
-
-        trace ->
-          updated_spans =
-            Enum.map(trace.spans, fn span ->
-              if span.span_id == span_id do
-                update_fn.(span)
-              else
-                span
-              end
-            end)
-
-          updated_trace = %{trace | spans: updated_spans}
-          Map.put(traces, trace_id, updated_trace)
-      end
+      update_trace(traces, trace_id, fn trace ->
+        updated_spans = Enum.map(trace.spans, &maybe_update_span(&1, span_id, update_fn))
+        %{trace | spans: updated_spans}
+      end)
     end)
   end
 
@@ -107,4 +87,14 @@ defmodule AITrace.Collector do
 
     Agent.update(__MODULE__, fn _traces -> %{} end)
   end
+
+  defp update_trace(traces, trace_id, update_fn) do
+    case Map.fetch(traces, trace_id) do
+      {:ok, trace} -> Map.put(traces, trace_id, update_fn.(trace))
+      :error -> traces
+    end
+  end
+
+  defp maybe_update_span(%Span{span_id: span_id} = span, span_id, update_fn), do: update_fn.(span)
+  defp maybe_update_span(%Span{} = span, _span_id, _update_fn), do: span
 end

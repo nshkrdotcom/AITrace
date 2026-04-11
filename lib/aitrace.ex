@@ -186,7 +186,20 @@ defmodule AITrace do
     ExportRunner.export(trace, configured_exporters())
   end
 
-  @doc false
+  @doc """
+  Exports a fully materialized trace through an explicit exporter list.
+
+  Use this when a caller needs one-shot export behavior without relying on
+  application-configured exporters.
+
+  ## Examples
+
+      trace = AITrace.Trace.new("trace-123")
+
+      AITrace.export(trace, [
+        {AITrace.Exporter.Console, verbose: true}
+      ])
+  """
   @spec export(Trace.t(), [module() | {module(), keyword() | map()}]) :: :ok | {:error, term()}
   def export(%Trace{} = trace, exporters) when is_list(exporters) do
     ExportRunner.export(trace, exporters)

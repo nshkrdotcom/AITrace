@@ -1,7 +1,7 @@
 defmodule AITrace.TraceTest do
   use ExUnit.Case, async: true
 
-  alias AITrace.{Trace, Span}
+  alias AITrace.{Span, Trace}
 
   describe "new/1" do
     test "creates a new trace with a trace_id" do

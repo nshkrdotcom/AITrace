@@ -6,36 +6,15 @@ defmodule AITrace.ExportRunner do
   @type exporter_config :: module() | {module(), keyword() | map()}
 
   @spec export(Trace.t(), [exporter_config()]) :: :ok | {:error, term()}
+  def export(%Trace{}, []), do: {:error, :unavailable}
+
   def export(%Trace{} = trace, exporters) when is_list(exporters) do
-    case exporters do
-      [] ->
-        {:error, :unavailable}
-
-      _ ->
-        Enum.reduce_while(exporters, :ok, fn exporter_config, :ok ->
-          case normalize_exporter(exporter_config) do
-            {:ok, exporter_module, opts} ->
-              case normalize_result(exporter_module.init(opts)) do
-                {:ok, state} ->
-                  case normalize_result(exporter_module.export(trace, state)) do
-                    {:ok, next_state} ->
-                      maybe_shutdown(exporter_module, next_state)
-                      {:cont, :ok}
-
-                    {:error, reason} ->
-                      maybe_shutdown(exporter_module, state)
-                      {:halt, {:error, reason}}
-                  end
-
-                {:error, reason} ->
-                  {:halt, {:error, reason}}
-              end
-
-            {:error, reason} ->
-              {:halt, {:error, reason}}
-          end
-        end)
-    end
+    Enum.reduce_while(exporters, :ok, fn exporter_config, :ok ->
+      case export_with(trace, exporter_config) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp normalize_exporter({exporter_module, opts}) when is_atom(exporter_module) do
@@ -66,6 +45,25 @@ defmodule AITrace.ExportRunner do
   defp normalize_result({:ok, state}), do: {:ok, state}
   defp normalize_result({:error, reason}), do: {:error, reason}
   defp normalize_result(_other), do: {:error, :backend_rejected}
+
+  defp export_with(trace, exporter_config) do
+    with {:ok, exporter_module, opts} <- normalize_exporter(exporter_config),
+         {:ok, state} <- normalize_result(exporter_module.init(opts)) do
+      export_trace(trace, exporter_module, state)
+    end
+  end
+
+  defp export_trace(trace, exporter_module, state) do
+    case normalize_result(exporter_module.export(trace, state)) do
+      {:ok, next_state} ->
+        maybe_shutdown(exporter_module, next_state)
+        :ok
+
+      {:error, reason} ->
+        maybe_shutdown(exporter_module, state)
+        {:error, reason}
+    end
+  end
 
   defp maybe_shutdown(module, state) do
     if function_exported?(module, :shutdown, 1) do

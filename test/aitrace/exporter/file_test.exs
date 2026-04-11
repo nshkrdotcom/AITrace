@@ -1,7 +1,7 @@
 defmodule AITrace.Exporter.FileTest do
   use ExUnit.Case, async: true
 
-  alias AITrace.{Exporter.File, Trace, Span, Event}
+  alias AITrace.{Event, Exporter.File, Span, Trace}
 
   @test_dir "/tmp/aitrace_file_test"
 

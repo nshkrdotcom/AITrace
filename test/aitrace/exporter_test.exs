@@ -1,7 +1,7 @@
 defmodule AITrace.ExporterTest do
   use ExUnit.Case, async: true
 
-  alias AITrace.{Trace, Span}
+  alias AITrace.{Span, Trace}
 
   # Test implementation for testing purposes
   defmodule TestExporter do

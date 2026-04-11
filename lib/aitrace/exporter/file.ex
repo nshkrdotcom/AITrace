@@ -25,7 +25,7 @@ defmodule AITrace.Exporter.File do
 
   @behaviour AITrace.Exporter
 
-  alias AITrace.{Trace, Span, Event}
+  alias AITrace.{Event, Span, Trace}
 
   @impl true
   def init(opts) when is_list(opts) do

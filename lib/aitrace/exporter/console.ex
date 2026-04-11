@@ -13,7 +13,7 @@ defmodule AITrace.Exporter.Console do
 
   @behaviour AITrace.Exporter
 
-  alias AITrace.{Trace, Span, Event}
+  alias AITrace.{Event, Span, Trace}
 
   @impl true
   def init(opts) when is_list(opts) do
@@ -65,7 +65,7 @@ defmodule AITrace.Exporter.Console do
       IO.puts("#{indent}  Attributes: #{inspect(span.attributes)}")
     end
 
-    if state.verbose and length(span.events) > 0 do
+    if state.verbose and span.events != [] do
       Enum.each(span.events, fn event ->
         print_event(event, state, depth + 1)
       end)
@@ -104,7 +104,6 @@ defmodule AITrace.Exporter.Console do
 
   defp format_status(:ok, _state), do: "✓"
   defp format_status(:error, _state), do: "✗"
-  defp format_status(_, _state), do: ""
 
   defp header(text, %{color: true}) do
     # Bold cyan

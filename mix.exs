@@ -20,6 +20,15 @@ defmodule AITrace.MixProject do
     ]
   end
 
+  def cli do
+    [
+      preferred_envs: [
+        credo: :dev,
+        dialyzer: :dev
+      ]
+    ]
+  end
+
   def application do
     [
       extra_applications: [:logger],
@@ -30,7 +39,9 @@ defmodule AITrace.MixProject do
   defp deps do
     [
       {:jason, "~> 1.4"},
-      {:ex_doc, "~> 0.40.0", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.40.0", only: :dev, runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
     ]
   end
 
