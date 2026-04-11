@@ -28,6 +28,10 @@ defmodule AITrace.Exporter.File do
   alias AITrace.{Trace, Span, Event}
 
   @impl true
+  def init(opts) when is_list(opts) do
+    init(Map.new(opts))
+  end
+
   def init(opts) do
     directory = Map.get(opts, :directory, "./traces")
 

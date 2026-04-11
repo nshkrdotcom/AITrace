@@ -43,7 +43,7 @@ defmodule AITrace do
         ]
   """
 
-  alias AITrace.{Context, Collector, Span, Event}
+  alias AITrace.{Collector, Context, Event, ExportRunner, Span, Trace}
 
   @doc """
   Starts a new trace.
@@ -175,6 +175,23 @@ defmodule AITrace do
     :ok
   end
 
+  @doc """
+  Exports a fully materialized trace through the configured exporter pipeline.
+
+  This is the bridge-facing one-shot path for integrations that construct
+  completed `AITrace.Trace` values directly.
+  """
+  @spec export(Trace.t()) :: :ok | {:error, term()}
+  def export(%Trace{} = trace) do
+    ExportRunner.export(trace, configured_exporters())
+  end
+
+  @doc false
+  @spec export(Trace.t(), [module() | {module(), keyword() | map()}]) :: :ok | {:error, term()}
+  def export(%Trace{} = trace, exporters) when is_list(exporters) do
+    ExportRunner.export(trace, exporters)
+  end
+
   # Private API functions
 
   @doc false
@@ -189,8 +206,7 @@ defmodule AITrace do
     trace = Collector.get_trace(ctx.trace_id)
 
     if trace do
-      # Export to configured exporters
-      export_trace(trace)
+      _ = export(trace)
       Collector.remove_trace(ctx.trace_id)
     end
 
@@ -226,17 +242,5 @@ defmodule AITrace do
   end
 
   # Export trace to configured exporters
-  defp export_trace(trace) do
-    exporters = Application.get_env(:aitrace, :exporters, [])
-
-    Enum.each(exporters, fn
-      {exporter_module, opts} ->
-        {:ok, state} = exporter_module.init(opts)
-        exporter_module.export(trace, state)
-
-      exporter_module when is_atom(exporter_module) ->
-        {:ok, state} = exporter_module.init(%{})
-        exporter_module.export(trace, state)
-    end)
-  end
+  defp configured_exporters, do: Application.get_env(:aitrace, :exporters) || []
 end

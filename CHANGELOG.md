@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Additive one-shot export API through `AITrace.export/1` and `AITrace.export/2` so completed `AITrace.Trace` values can be exported without reimplementing exporter execution in downstream bridges.
+
+### Changed
+- Normalize configured exporter options centrally before initialization so keyword-configured exporters follow the same execution path as map-configured exporters.
+- Record the Citadel bridge-facing export-path hardening here as the compatibility note for the additive public-surface change.
+
 ## [0.1.0] - 2025-10-29
 
 ### Added

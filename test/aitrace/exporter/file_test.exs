@@ -18,6 +18,11 @@ defmodule AITrace.Exporter.FileTest do
   end
 
   describe "init/1" do
+    test "accepts keyword-list options" do
+      assert {:ok, state} = File.init(directory: @test_dir)
+      assert state.directory == @test_dir
+    end
+
     test "initializes with directory path" do
       opts = %{directory: @test_dir}
       assert {:ok, state} = File.init(opts)

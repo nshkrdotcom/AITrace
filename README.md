@@ -115,6 +115,19 @@ IO.inspect(ctx.trace_id)
 IO.inspect(ctx.span_id)
 ```
 
+### Direct Trace Export
+
+```elixir
+trace =
+  %AITrace.Trace{trace_id: "trace_123", created_at: 1_712_345_678_000_000, spans: [], metadata: %{}}
+
+AITrace.export(trace)
+```
+
+This one-shot path is intended for integrations that already have a completed
+`AITrace.Trace` value and want to run it through the configured exporters
+without using the collector-backed macros.
+
 ## Configuration
 
 Configure exporters in your application config:
