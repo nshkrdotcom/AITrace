@@ -55,6 +55,27 @@ defmodule AITrace.ExportTest do
     assert {:error, :unavailable} = AITrace.export(completed_trace("trace-3"))
   end
 
+  test "collector state is not authoritative proof evidence" do
+    assert AITrace.Collector.authoritative_evidence?() == false
+
+    assert %{
+             storage: :in_memory_agent,
+             authoritative_evidence?: false,
+             safe_action: :export_required_for_authoritative_evidence
+           } = AITrace.Collector.evidence_posture()
+  end
+
+  test "collector loss leaves no authoritative proof without export" do
+    trace_id = AITrace.Context.generate_id()
+
+    assert %{trace_id: ^trace_id} = AITrace.Collector.new_trace(trace_id)
+    assert %{trace_id: ^trace_id} = AITrace.Collector.get_trace(trace_id)
+
+    assert :ok = AITrace.Collector.clear()
+    assert AITrace.Collector.get_trace(trace_id) == nil
+    assert AITrace.Collector.authoritative_evidence?() == false
+  end
+
   defp completed_trace(trace_id) do
     trace = Trace.new(trace_id)
     span = Span.new("operation") |> Span.finish()

@@ -11,6 +11,7 @@ defmodule AITrace.ContextTest do
       assert is_binary(ctx.trace_id)
       # UUID without dashes
       assert byte_size(ctx.trace_id) == 32
+      assert ctx.trace_id_source.kind == :aitrace_generated
     end
 
     test "creates unique trace_ids for each context" do
@@ -39,6 +40,7 @@ defmodule AITrace.ContextTest do
       ctx = Context.new(trace_id)
 
       assert ctx.trace_id == trace_id
+      assert ctx.trace_id_source.kind == :external_alias
     end
   end
 

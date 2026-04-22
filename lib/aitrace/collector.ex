@@ -22,7 +22,7 @@ defmodule AITrace.Collector do
   """
   @spec new_trace(String.t()) :: Trace.t()
   def new_trace(trace_id) do
-    trace = Trace.new(trace_id)
+    trace = Trace.new(trace_id, id_source: :aitrace_generated)
 
     Agent.update(__MODULE__, fn traces ->
       Map.put(traces, trace_id, trace)
@@ -86,6 +86,24 @@ defmodule AITrace.Collector do
     end
 
     Agent.update(__MODULE__, fn _traces -> %{} end)
+  end
+
+  @doc """
+  Returns false because collector state is in-memory working state only.
+  """
+  @spec authoritative_evidence?() :: false
+  def authoritative_evidence?, do: false
+
+  @doc """
+  Describes the collector evidence posture for release and incident proof.
+  """
+  @spec evidence_posture() :: map()
+  def evidence_posture do
+    %{
+      storage: :in_memory_agent,
+      authoritative_evidence?: false,
+      safe_action: :export_required_for_authoritative_evidence
+    }
   end
 
   defp update_trace(traces, trace_id, update_fn) do

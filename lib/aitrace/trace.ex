@@ -9,16 +9,27 @@ defmodule AITrace.Trace do
   - Creation timestamp
   """
 
-  alias AITrace.Span
+  alias AITrace.{Clock, Identifier, Span}
 
   @type t :: %__MODULE__{
           trace_id: String.t(),
+          trace_id_source: map(),
           spans: list(Span.t()),
           metadata: map(),
-          created_at: integer()
+          created_at: integer(),
+          created_at_wall_time: DateTime.t(),
+          clock_domain: map()
         }
 
-  defstruct [:trace_id, :created_at, spans: [], metadata: %{}]
+  defstruct [
+    :trace_id,
+    :trace_id_source,
+    :created_at,
+    :created_at_wall_time,
+    :clock_domain,
+    spans: [],
+    metadata: %{}
+  ]
 
   @doc """
   Creates a new trace with the given trace_id.
@@ -31,13 +42,18 @@ defmodule AITrace.Trace do
       iex> trace.spans
       []
   """
-  @spec new(String.t()) :: t()
-  def new(trace_id) when is_binary(trace_id) do
+  @spec new(String.t(), keyword()) :: t()
+  def new(trace_id, opts \\ []) when is_binary(trace_id) and is_list(opts) do
+    id_source = Keyword.get(opts, :id_source, :external_alias)
+
     %__MODULE__{
       trace_id: trace_id,
+      trace_id_source: Identifier.source!(:trace, trace_id, id_source),
       spans: [],
       metadata: %{},
-      created_at: System.monotonic_time(:microsecond)
+      created_at: Clock.monotonic_time(),
+      created_at_wall_time: Clock.wall_time(),
+      clock_domain: Clock.clock_domain()
     }
   end
 

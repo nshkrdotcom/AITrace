@@ -11,6 +11,7 @@ defmodule AITrace.Exporter.File do
   ## Options
 
   - `:directory` - Directory to write trace files (default: "./traces")
+  - `:release_manifest_ref` - Release manifest or evidence bundle reference for this export
 
   ## File Format
 
@@ -25,7 +26,9 @@ defmodule AITrace.Exporter.File do
 
   @behaviour AITrace.Exporter
 
-  alias AITrace.{Event, Span, Trace}
+  alias AITrace.{Clock, Event, Span, Trace}
+
+  @schema_version "aitrace.file_export.v1"
 
   @impl true
   def init(opts) when is_list(opts) do
@@ -33,18 +36,21 @@ defmodule AITrace.Exporter.File do
   end
 
   def init(opts) do
-    directory = Map.get(opts, :directory, "./traces")
+    directory = Map.get(opts, :directory, Map.get(opts, "directory", "./traces"))
+
+    release_manifest_ref =
+      Map.get(opts, :release_manifest_ref, Map.get(opts, "release_manifest_ref"))
 
     # Create directory if it doesn't exist
     File.mkdir_p!(directory)
 
-    state = %{directory: directory}
+    state = %{directory: directory, release_manifest_ref: release_manifest_ref}
     {:ok, state}
   end
 
   @impl true
   def export(%Trace{} = trace, state) do
-    json = encode_trace(trace)
+    json = encode_trace(trace, state)
     filename = generate_filename(trace)
     file_path = Path.join(state.directory, filename)
 
@@ -61,11 +67,17 @@ defmodule AITrace.Exporter.File do
 
   # Private functions
 
-  defp encode_trace(%Trace{} = trace) do
+  defp encode_trace(%Trace{} = trace, state) do
     data = %{
+      exporter_schema_version: @schema_version,
+      release_manifest_ref: state.release_manifest_ref,
+      exported_at_wall_time: Clock.wall_time_iso8601(Clock.wall_time()),
       trace_id: trace.trace_id,
+      trace_id_source: trace.trace_id_source,
       metadata: trace.metadata,
       created_at: trace.created_at,
+      created_at_wall_time: Clock.wall_time_iso8601(trace.created_at_wall_time),
+      clock_domain: trace.clock_domain,
       spans: Enum.map(trace.spans, &encode_span/1)
     }
 
@@ -75,10 +87,16 @@ defmodule AITrace.Exporter.File do
   defp encode_span(%Span{} = span) do
     %{
       span_id: span.span_id,
+      span_id_source: span.span_id_source,
       parent_span_id: span.parent_span_id,
+      parent_span_id_source: span.parent_span_id_source,
       name: span.name,
       start_time: span.start_time,
+      start_wall_time: Clock.wall_time_iso8601(span.start_wall_time),
       end_time: span.end_time,
+      end_wall_time: Clock.wall_time_iso8601(span.end_wall_time),
+      duration_microseconds: Span.duration(span),
+      clock_domain: span.clock_domain,
       attributes: span.attributes,
       events: Enum.map(span.events, &encode_event/1),
       status: span.status
@@ -89,6 +107,8 @@ defmodule AITrace.Exporter.File do
     %{
       name: event.name,
       timestamp: event.timestamp,
+      wall_time: Clock.wall_time_iso8601(event.wall_time),
+      clock_domain: event.clock_domain,
       attributes: event.attributes
     }
   end

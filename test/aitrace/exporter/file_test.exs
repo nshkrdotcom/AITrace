@@ -19,14 +19,18 @@ defmodule AITrace.Exporter.FileTest do
 
   describe "init/1" do
     test "accepts keyword-list options" do
-      assert {:ok, state} = File.init(directory: @test_dir)
+      assert {:ok, state} =
+               File.init(directory: @test_dir, release_manifest_ref: "release:phase5")
+
       assert state.directory == @test_dir
+      assert state.release_manifest_ref == "release:phase5"
     end
 
     test "initializes with directory path" do
-      opts = %{directory: @test_dir}
+      opts = %{directory: @test_dir, release_manifest_ref: "release:map"}
       assert {:ok, state} = File.init(opts)
       assert state.directory == @test_dir
+      assert state.release_manifest_ref == "release:map"
     end
 
     test "creates directory if it doesn't exist" do
@@ -46,7 +50,8 @@ defmodule AITrace.Exporter.FileTest do
 
   describe "export/2" do
     test "writes trace to JSON file" do
-      {:ok, state} = File.init(%{directory: @test_dir})
+      {:ok, state} =
+        File.init(%{directory: @test_dir, release_manifest_ref: "release:phase5-v7-m5"})
 
       trace = Trace.new("test_trace_123")
       span = Span.new("operation") |> Span.finish()
@@ -63,6 +68,10 @@ defmodule AITrace.Exporter.FileTest do
       data = Jason.decode!(content)
 
       assert data["trace_id"] == "test_trace_123"
+      assert data["exporter_schema_version"] == "aitrace.file_export.v1"
+      assert data["release_manifest_ref"] == "release:phase5-v7-m5"
+      assert is_binary(data["created_at_wall_time"])
+      assert data["clock_domain"]["monotonic_unit"] == "microsecond"
       assert is_list(data["spans"])
       assert length(data["spans"]) == 1
     end
@@ -91,6 +100,9 @@ defmodule AITrace.Exporter.FileTest do
       assert span_data["attributes"]["user_id"] == 42
       assert is_integer(span_data["start_time"])
       assert is_integer(span_data["end_time"])
+      assert is_binary(span_data["start_wall_time"])
+      assert is_binary(span_data["end_wall_time"])
+      assert is_integer(span_data["duration_microseconds"])
     end
 
     test "includes events in JSON output" do
