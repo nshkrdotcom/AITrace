@@ -191,6 +191,70 @@ defmodule AITrace.Exporter.FileTest do
       assert event_data["attributes"]["key"] == "user_123"
     end
 
+    test "bounds raw exporter metadata and attributes", %{test_dir: test_dir} do
+      {:ok, state} = File.init(%{directory: test_dir})
+
+      trace =
+        Trace.new("trace_bounds")
+        |> Trace.with_metadata(%{
+          safe_ref: "release:phase5",
+          prompt_hash: "sha256:already-redacted",
+          raw_prompt: "the original prompt must not be serialized",
+          nested: %{provider_body: "raw provider body must not be serialized"},
+          long_value: String.duplicate("x", 600)
+        })
+
+      event =
+        Event.new("provider_call", %{
+          safe_event: "provider.redacted",
+          provider_response: "raw response must not be serialized"
+        })
+
+      span =
+        Span.new("operation")
+        |> Span.with_attributes(%{
+          user_id: 42,
+          raw_webhook_body: %{"secret" => "raw webhook body must not be serialized"}
+        })
+        |> Span.add_event(event)
+        |> Span.finish()
+
+      trace = Trace.add_span(trace, span)
+
+      {:ok, _state} = File.export(trace, state)
+
+      data = read_json!(trace_file_path!(test_dir))
+      encoded = Jason.encode!(data)
+
+      assert data["export_bounds"]["schema_version"] == "aitrace.export_bounds.v1"
+      assert data["export_bounds"]["overflow_safe_action"] == "spill_to_artifact_ref"
+      assert data["metadata"]["safe_ref"] == "release:phase5"
+      assert data["metadata"]["prompt_hash"] == "sha256:already-redacted"
+      refute Map.has_key?(data["metadata"], "raw_prompt")
+      assert data["metadata"]["long_value"]["ref"] =~ "aitrace://export-spillover/"
+
+      metadata_overflow = data["metadata"]["_aitrace_export_overflow"]
+      assert metadata_overflow["overflow_safe_action"] == "spill_to_artifact_ref"
+      assert metadata_overflow["count"] >= 1
+      assert [%{"sha256" => sha256} | _] = metadata_overflow["refs"]
+      assert byte_size(sha256) == 64
+
+      span_attrs = hd(data["spans"])["attributes"]
+      assert span_attrs["user_id"] == 42
+      refute Map.has_key?(span_attrs, "raw_webhook_body")
+      assert span_attrs["_aitrace_export_overflow"]["count"] == 1
+
+      event_attrs = hd(hd(data["spans"])["events"])["attributes"]
+      assert event_attrs["safe_event"] == "provider.redacted"
+      refute Map.has_key?(event_attrs, "provider_response")
+      assert event_attrs["_aitrace_export_overflow"]["count"] == 1
+
+      refute encoded =~ "the original prompt must not be serialized"
+      refute encoded =~ "raw provider body must not be serialized"
+      refute encoded =~ "raw webhook body must not be serialized"
+      refute encoded =~ "raw response must not be serialized"
+    end
+
     test "filename includes trace_id and timestamp", %{test_dir: test_dir} do
       {:ok, state} = File.init(%{directory: test_dir})
 

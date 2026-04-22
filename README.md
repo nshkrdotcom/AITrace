@@ -154,6 +154,10 @@ config :aitrace,
     linkage, and proof posture. Trace data is not authoritative audit,
     incident, replay, review, or release-manifest proof unless the receipt is
     anchored by `release_manifest_ref` or an existing `evidence_owner_ref`.
+  - Exported metadata and attributes are bounded by
+    `AITrace.ExportBounds`; raw prompt/provider/webhook/payload-shaped fields
+    and oversize values are replaced with SHA-256 spillover refs instead of
+    being serialized inline.
 
 ### Creating Custom Exporters
 

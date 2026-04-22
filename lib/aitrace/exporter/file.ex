@@ -31,7 +31,7 @@ defmodule AITrace.Exporter.File do
 
   @behaviour AITrace.Exporter
 
-  alias AITrace.{Clock, Event, Span, Trace}
+  alias AITrace.{Clock, Event, ExportBounds, Span, Trace}
 
   @schema_version "aitrace.file_export.v1"
   @evidence_schema_version "aitrace.file_export_evidence.v1"
@@ -88,11 +88,12 @@ defmodule AITrace.Exporter.File do
   defp encode_trace(%Trace{} = trace, state, exported_at_wall_time) do
     data = %{
       exporter_schema_version: @schema_version,
+      export_bounds: ExportBounds.profile(),
       release_manifest_ref: state.release_manifest_ref,
       exported_at_wall_time: exported_at_wall_time,
       trace_id: trace.trace_id,
       trace_id_source: trace.trace_id_source,
-      metadata: trace.metadata,
+      metadata: ExportBounds.bound_map!(trace.metadata, surface: :trace_metadata),
       created_at: trace.created_at,
       created_at_wall_time: Clock.wall_time_iso8601(trace.created_at_wall_time),
       clock_domain: trace.clock_domain,
@@ -200,7 +201,7 @@ defmodule AITrace.Exporter.File do
       end_wall_time: Clock.wall_time_iso8601(span.end_wall_time),
       duration_microseconds: Span.duration(span),
       clock_domain: span.clock_domain,
-      attributes: span.attributes,
+      attributes: ExportBounds.bound_map!(span.attributes, surface: :span_attributes),
       events: Enum.map(span.events, &encode_event/1),
       status: span.status
     }
@@ -212,7 +213,7 @@ defmodule AITrace.Exporter.File do
       timestamp: event.timestamp,
       wall_time: Clock.wall_time_iso8601(event.wall_time),
       clock_domain: event.clock_domain,
-      attributes: event.attributes
+      attributes: ExportBounds.bound_map!(event.attributes, surface: :event_attributes)
     }
   end
 
