@@ -3,38 +3,43 @@ defmodule AITrace.Exporter.FileTest do
 
   alias AITrace.{Event, Exporter.File, Span, Trace}
 
-  @test_dir "/tmp/aitrace_file_test"
-
   setup do
-    # Clean up test directory before each test
-    :file.del_dir_r(String.to_charlist(@test_dir))
-    :file.make_dir(String.to_charlist(@test_dir))
+    test_dir =
+      Path.join(System.tmp_dir!(), "aitrace_file_test_#{System.unique_integer([:positive])}")
+
+    Elixir.File.rm_rf!(test_dir)
+    Elixir.File.mkdir_p!(test_dir)
 
     on_exit(fn ->
-      :file.del_dir_r(String.to_charlist(@test_dir))
+      Elixir.File.rm_rf!(test_dir)
     end)
 
-    :ok
+    {:ok, test_dir: test_dir}
   end
 
   describe "init/1" do
-    test "accepts keyword-list options" do
+    test "accepts keyword-list options", %{test_dir: test_dir} do
       assert {:ok, state} =
-               File.init(directory: @test_dir, release_manifest_ref: "release:phase5")
+               File.init(
+                 directory: test_dir,
+                 release_manifest_ref: "release:phase5",
+                 evidence_owner_ref: "evidence-owner:trace-file"
+               )
 
-      assert state.directory == @test_dir
+      assert state.directory == test_dir
       assert state.release_manifest_ref == "release:phase5"
+      assert state.evidence_owner_ref == "evidence-owner:trace-file"
     end
 
-    test "initializes with directory path" do
-      opts = %{directory: @test_dir, release_manifest_ref: "release:map"}
+    test "initializes with directory path", %{test_dir: test_dir} do
+      opts = %{directory: test_dir, release_manifest_ref: "release:map"}
       assert {:ok, state} = File.init(opts)
-      assert state.directory == @test_dir
+      assert state.directory == test_dir
       assert state.release_manifest_ref == "release:map"
     end
 
-    test "creates directory if it doesn't exist" do
-      dir = Path.join(@test_dir, "new_dir")
+    test "creates directory if it doesn't exist", %{test_dir: test_dir} do
+      dir = Path.join(test_dir, "new_dir")
       refute :filelib.is_dir(String.to_charlist(dir))
 
       {:ok, _state} = File.init(%{directory: dir})
@@ -49,9 +54,9 @@ defmodule AITrace.Exporter.FileTest do
   end
 
   describe "export/2" do
-    test "writes trace to JSON file" do
+    test "writes trace to JSON file", %{test_dir: test_dir} do
       {:ok, state} =
-        File.init(%{directory: @test_dir, release_manifest_ref: "release:phase5-v7-m5"})
+        File.init(%{directory: test_dir, release_manifest_ref: "release:phase5-v7-m5"})
 
       trace = Trace.new("test_trace_123")
       span = Span.new("operation") |> Span.finish()
@@ -59,13 +64,8 @@ defmodule AITrace.Exporter.FileTest do
 
       {:ok, _state} = File.export(trace, state)
 
-      # Check that file was created
-      {:ok, files} = :file.list_dir(String.to_charlist(@test_dir))
-      assert length(files) == 1
-
-      file_path = Path.join(@test_dir, to_string(hd(files)))
-      {:ok, content} = :file.read_file(String.to_charlist(file_path))
-      data = Jason.decode!(content)
+      assert length(exported_files(test_dir)) == 2
+      data = read_json!(trace_file_path!(test_dir))
 
       assert data["trace_id"] == "test_trace_123"
       assert data["exporter_schema_version"] == "aitrace.file_export.v1"
@@ -76,8 +76,71 @@ defmodule AITrace.Exporter.FileTest do
       assert length(data["spans"]) == 1
     end
 
-    test "writes valid JSON with span details" do
-      {:ok, state} = File.init(%{directory: @test_dir})
+    test "writes durable evidence receipt with content hash and release-manifest linkage", %{
+      test_dir: test_dir
+    } do
+      {:ok, state} =
+        File.init(%{
+          directory: test_dir,
+          release_manifest_ref: "release:phase5-v7-m5",
+          evidence_owner_ref: "evidence-owner:trace-file"
+        })
+
+      trace = Trace.new("trace_with_evidence")
+      span = Span.new("operation") |> Span.finish()
+      trace = Trace.add_span(trace, span)
+
+      assert {:ok, %{last_export: last_export}} = File.export(trace, state)
+
+      trace_path = trace_file_path!(test_dir)
+      evidence_path = evidence_file_path!(test_dir)
+      trace_json = Elixir.File.read!(trace_path)
+      evidence = read_json!(evidence_path)
+
+      assert evidence["evidence_schema_version"] == "aitrace.file_export_evidence.v1"
+      assert evidence["exporter_schema_version"] == "aitrace.file_export.v1"
+      assert evidence["trace_id"] == "trace_with_evidence"
+      assert evidence["trace_artifact_ref"] == Path.basename(trace_path)
+      assert evidence["evidence_receipt_ref"] == Path.basename(evidence_path)
+      assert evidence["trace_artifact_sha256"] == sha256(trace_json)
+      assert evidence["trace_artifact_bytes"] == byte_size(trace_json)
+      assert evidence["hash_algorithm"] == "sha256"
+      assert evidence["release_manifest_ref"] == "release:phase5-v7-m5"
+      assert evidence["evidence_owner_ref"] == "evidence-owner:trace-file"
+
+      assert evidence["proof_posture"]["authoritative_evidence?"] == true
+      assert evidence["proof_posture"]["release_manifest_linked?"] == true
+      assert evidence["proof_posture"]["evidence_owner_anchored?"] == true
+      assert evidence["proof_posture"]["safe_action"] == "cite_evidence_receipt"
+
+      assert last_export.trace_artifact_sha256 == sha256(trace_json)
+      assert last_export.release_manifest_ref == "release:phase5-v7-m5"
+    end
+
+    test "marks unanchored exports as not authoritative proof", %{test_dir: test_dir} do
+      {:ok, state} = File.init(%{directory: test_dir})
+
+      trace = Trace.new("trace_without_release_link")
+      span = Span.new("operation") |> Span.finish()
+      trace = Trace.add_span(trace, span)
+
+      assert {:ok, %{last_export: last_export}} = File.export(trace, state)
+
+      evidence = read_json!(evidence_file_path!(test_dir))
+
+      assert evidence["trace_artifact_sha256"] == last_export.trace_artifact_sha256
+      assert evidence["release_manifest_ref"] == nil
+      assert evidence["evidence_owner_ref"] == nil
+      assert evidence["proof_posture"]["authoritative_evidence?"] == false
+      assert evidence["proof_posture"]["release_manifest_linked?"] == false
+      assert evidence["proof_posture"]["evidence_owner_anchored?"] == false
+
+      assert evidence["proof_posture"]["safe_action"] ==
+               "release_manifest_ref_or_evidence_owner_ref_required_for_authoritative_proof"
+    end
+
+    test "writes valid JSON with span details", %{test_dir: test_dir} do
+      {:ok, state} = File.init(%{directory: test_dir})
 
       trace = Trace.new("trace_123")
 
@@ -90,10 +153,7 @@ defmodule AITrace.Exporter.FileTest do
 
       {:ok, _state} = File.export(trace, state)
 
-      {:ok, files} = :file.list_dir(String.to_charlist(@test_dir))
-      file_path = Path.join(@test_dir, to_string(hd(files)))
-      {:ok, content} = :file.read_file(String.to_charlist(file_path))
-      data = Jason.decode!(content)
+      data = read_json!(trace_file_path!(test_dir))
 
       span_data = hd(data["spans"])
       assert span_data["name"] == "my_operation"
@@ -105,8 +165,8 @@ defmodule AITrace.Exporter.FileTest do
       assert is_integer(span_data["duration_microseconds"])
     end
 
-    test "includes events in JSON output" do
-      {:ok, state} = File.init(%{directory: @test_dir})
+    test "includes events in JSON output", %{test_dir: test_dir} do
+      {:ok, state} = File.init(%{directory: test_dir})
 
       trace = Trace.new("trace_123")
       event = Event.new("cache_miss", %{key: "user_123"})
@@ -120,10 +180,7 @@ defmodule AITrace.Exporter.FileTest do
 
       {:ok, _state} = File.export(trace, state)
 
-      {:ok, files} = :file.list_dir(String.to_charlist(@test_dir))
-      file_path = Path.join(@test_dir, to_string(hd(files)))
-      {:ok, content} = :file.read_file(String.to_charlist(file_path))
-      data = Jason.decode!(content)
+      data = read_json!(trace_file_path!(test_dir))
 
       span_data = hd(data["spans"])
       assert is_list(span_data["events"])
@@ -134,14 +191,13 @@ defmodule AITrace.Exporter.FileTest do
       assert event_data["attributes"]["key"] == "user_123"
     end
 
-    test "filename includes trace_id and timestamp" do
-      {:ok, state} = File.init(%{directory: @test_dir})
+    test "filename includes trace_id and timestamp", %{test_dir: test_dir} do
+      {:ok, state} = File.init(%{directory: test_dir})
 
       trace = Trace.new("my_trace")
       {:ok, _state} = File.export(trace, state)
 
-      {:ok, files} = :file.list_dir(String.to_charlist(@test_dir))
-      filename = to_string(hd(files))
+      filename = Path.basename(trace_file_path!(test_dir))
 
       assert filename =~ "my_trace"
       assert filename =~ ".json"
@@ -149,8 +205,37 @@ defmodule AITrace.Exporter.FileTest do
   end
 
   describe "shutdown/1" do
-    test "returns :ok" do
-      assert :ok = File.shutdown(%{directory: @test_dir})
+    test "returns :ok", %{test_dir: test_dir} do
+      assert :ok = File.shutdown(%{directory: test_dir})
     end
+  end
+
+  defp exported_files(test_dir), do: Elixir.File.ls!(test_dir)
+
+  defp trace_file_path!(test_dir) do
+    test_dir
+    |> exported_files()
+    |> Enum.reject(&String.ends_with?(&1, ".evidence.json"))
+    |> single_path!(test_dir)
+  end
+
+  defp evidence_file_path!(test_dir) do
+    test_dir
+    |> exported_files()
+    |> Enum.filter(&String.ends_with?(&1, ".evidence.json"))
+    |> single_path!(test_dir)
+  end
+
+  defp single_path!([filename], test_dir), do: Path.join(test_dir, filename)
+
+  defp read_json!(path) do
+    path
+    |> Elixir.File.read!()
+    |> Jason.decode!()
+  end
+
+  defp sha256(content) do
+    :crypto.hash(:sha256, content)
+    |> Base.encode16(case: :lower)
   end
 end

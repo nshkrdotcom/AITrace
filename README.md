@@ -147,7 +147,13 @@ config :aitrace,
   - Options: `verbose` (show attributes/events), `color` (ANSI colors)
 
 *   **`AITrace.Exporter.File`** - Writes JSON traces to files
-  - Options: `directory` (output directory, default: "./traces")
+  - Options: `directory` (output directory, default: "./traces"),
+    `release_manifest_ref`, `evidence_owner_ref`
+  - The file exporter writes an adjacent `.evidence.json` receipt containing
+    the trace artifact SHA-256, byte count, release-manifest or evidence-owner
+    linkage, and proof posture. Trace data is not authoritative audit,
+    incident, replay, review, or release-manifest proof unless the receipt is
+    anchored by `release_manifest_ref` or an existing `evidence_owner_ref`.
 
 ### Creating Custom Exporters
 
