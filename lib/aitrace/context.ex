@@ -10,11 +10,12 @@ defmodule AITrace.Context do
 
   @type t :: %__MODULE__{
           trace_id: String.t(),
+          trace_id_source: map(),
           span_id: String.t() | nil,
           metadata: map()
         }
 
-  defstruct [:trace_id, :span_id, metadata: %{}]
+  defstruct [:trace_id, :trace_id_source, :span_id, metadata: %{}]
 
   @doc """
   Creates a new context with a generated trace_id.
@@ -29,8 +30,11 @@ defmodule AITrace.Context do
   """
   @spec new() :: t()
   def new do
+    trace_id = generate_id()
+
     %__MODULE__{
-      trace_id: generate_id(),
+      trace_id: trace_id,
+      trace_id_source: AITrace.Identifier.source!(:trace, trace_id, :aitrace_generated),
       span_id: nil,
       metadata: %{}
     }
@@ -49,6 +53,7 @@ defmodule AITrace.Context do
   def new(trace_id) when is_binary(trace_id) do
     %__MODULE__{
       trace_id: trace_id,
+      trace_id_source: AITrace.Identifier.source!(:trace, trace_id, :external_alias),
       span_id: nil,
       metadata: %{}
     }
@@ -100,10 +105,7 @@ defmodule AITrace.Context do
     Map.get(ctx.metadata, key, default)
   end
 
-  # Generates a unique ID (32 character hex string, UUID without dashes)
+  # Delegates generated trace id ownership to AITrace.Identifier.
   @spec generate_id() :: String.t()
-  defp generate_id do
-    :crypto.strong_rand_bytes(16)
-    |> Base.encode16(case: :lower)
-  end
+  def generate_id, do: AITrace.Identifier.generate(:trace)
 end

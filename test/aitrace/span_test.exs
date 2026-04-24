@@ -10,6 +10,7 @@ defmodule AITrace.SpanTest do
       assert %Span{} = span
       assert is_binary(span.span_id)
       assert byte_size(span.span_id) == 32
+      assert span.span_id_source.kind == :aitrace_generated
     end
 
     test "creates unique span_ids for each span" do
@@ -32,6 +33,8 @@ defmodule AITrace.SpanTest do
 
       assert span.start_time >= before
       assert span.start_time <= after_time
+      assert %DateTime{} = span.start_wall_time
+      assert span.clock_domain.monotonic_unit == "microsecond"
     end
 
     test "initializes end_time as nil" do
@@ -70,7 +73,14 @@ defmodule AITrace.SpanTest do
       span = Span.new("child_op", "parent_123")
 
       assert span.parent_span_id == "parent_123"
+      assert span.parent_span_id_source.kind == :external_alias
       assert span.name == "child_op"
+    end
+
+    test "rejects malformed parent span ids" do
+      assert_raise ArgumentError, fn ->
+        Span.new("child_op", "bad parent id")
+      end
     end
   end
 
@@ -84,6 +94,7 @@ defmodule AITrace.SpanTest do
 
       assert finished_span.end_time != nil
       assert finished_span.end_time > finished_span.start_time
+      assert %DateTime{} = finished_span.end_wall_time
     end
 
     test "returns a new span (immutability)" do

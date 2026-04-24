@@ -10,16 +10,21 @@ defmodule AITrace.Span do
   - Status (ok, error)
   """
 
-  alias AITrace.Event
+  alias AITrace.{Clock, Event, Identifier}
 
   @type status :: :ok | :error
 
   @type t :: %__MODULE__{
           span_id: String.t(),
+          span_id_source: map(),
           parent_span_id: String.t() | nil,
+          parent_span_id_source: map() | nil,
           name: String.t(),
           start_time: integer(),
+          start_wall_time: DateTime.t(),
           end_time: integer() | nil,
+          end_wall_time: DateTime.t() | nil,
+          clock_domain: map(),
           attributes: map(),
           events: list(Event.t()),
           status: status()
@@ -27,10 +32,15 @@ defmodule AITrace.Span do
 
   defstruct [
     :span_id,
+    :span_id_source,
     :parent_span_id,
+    :parent_span_id_source,
     :name,
     :start_time,
+    :start_wall_time,
     :end_time,
+    :end_wall_time,
+    :clock_domain,
     attributes: %{},
     events: [],
     status: :ok
@@ -49,12 +59,19 @@ defmodule AITrace.Span do
   """
   @spec new(String.t()) :: t()
   def new(name) when is_binary(name) do
+    span_id = generate_id()
+
     %__MODULE__{
-      span_id: generate_id(),
+      span_id: span_id,
+      span_id_source: Identifier.source!(:span, span_id, :aitrace_generated),
       parent_span_id: nil,
+      parent_span_id_source: nil,
       name: name,
-      start_time: System.monotonic_time(:microsecond),
+      start_time: Clock.monotonic_time(),
+      start_wall_time: Clock.wall_time(),
       end_time: nil,
+      end_wall_time: nil,
+      clock_domain: Clock.clock_domain(),
       attributes: %{},
       events: [],
       status: :ok
@@ -72,12 +89,19 @@ defmodule AITrace.Span do
   """
   @spec new(String.t(), String.t()) :: t()
   def new(name, parent_span_id) when is_binary(name) and is_binary(parent_span_id) do
+    span_id = generate_id()
+
     %__MODULE__{
-      span_id: generate_id(),
+      span_id: span_id,
+      span_id_source: Identifier.source!(:span, span_id, :aitrace_generated),
       parent_span_id: parent_span_id,
+      parent_span_id_source: Identifier.parent_span_source!(parent_span_id),
       name: name,
-      start_time: System.monotonic_time(:microsecond),
+      start_time: Clock.monotonic_time(),
+      start_wall_time: Clock.wall_time(),
       end_time: nil,
+      end_wall_time: nil,
+      clock_domain: Clock.clock_domain(),
       attributes: %{},
       events: [],
       status: :ok
@@ -96,7 +120,7 @@ defmodule AITrace.Span do
   """
   @spec finish(t()) :: t()
   def finish(%__MODULE__{} = span) do
-    %{span | end_time: System.monotonic_time(:microsecond)}
+    %{span | end_time: Clock.monotonic_time(), end_wall_time: Clock.wall_time()}
   end
 
   @doc """
@@ -159,13 +183,10 @@ defmodule AITrace.Span do
   def duration(%__MODULE__{end_time: nil}), do: nil
 
   def duration(%__MODULE__{start_time: start_time, end_time: end_time}) do
-    end_time - start_time
+    Clock.duration_microseconds(start_time, end_time)
   end
 
-  # Generates a unique ID (32 character hex string)
+  # Delegates generated span id ownership to AITrace.Identifier.
   @spec generate_id() :: String.t()
-  defp generate_id do
-    :crypto.strong_rand_bytes(16)
-    |> Base.encode16(case: :lower)
-  end
+  def generate_id, do: Identifier.generate(:span)
 end

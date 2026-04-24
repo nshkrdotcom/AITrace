@@ -12,10 +12,12 @@ defmodule AITrace.Event do
   @type t :: %__MODULE__{
           name: String.t(),
           timestamp: integer(),
+          wall_time: DateTime.t(),
+          clock_domain: map(),
           attributes: map()
         }
 
-  defstruct [:name, :timestamp, attributes: %{}]
+  defstruct [:name, :timestamp, :wall_time, :clock_domain, attributes: %{}]
 
   @doc """
   Creates a new event with a name and attributes.
@@ -32,7 +34,9 @@ defmodule AITrace.Event do
   def new(name, attributes \\ %{}) when is_binary(name) and is_map(attributes) do
     %__MODULE__{
       name: name,
-      timestamp: System.monotonic_time(:microsecond),
+      timestamp: AITrace.Clock.monotonic_time(),
+      wall_time: AITrace.Clock.wall_time(),
+      clock_domain: AITrace.Clock.clock_domain(),
       attributes: attributes
     }
   end

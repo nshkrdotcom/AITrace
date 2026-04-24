@@ -9,6 +9,7 @@ defmodule AITrace.TraceTest do
 
       assert %Trace{} = trace
       assert trace.trace_id == "trace_123"
+      assert trace.trace_id_source.kind == :external_alias
     end
 
     test "initializes with empty spans list" do
@@ -30,6 +31,14 @@ defmodule AITrace.TraceTest do
 
       assert trace.created_at >= before
       assert trace.created_at <= after_time
+      assert %DateTime{} = trace.created_at_wall_time
+      assert trace.clock_domain.monotonic_unit == "microsecond"
+    end
+
+    test "rejects malformed imported trace ids" do
+      assert_raise ArgumentError, fn ->
+        Trace.new("bad trace id")
+      end
     end
   end
 
