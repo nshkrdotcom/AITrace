@@ -117,6 +117,59 @@ defmodule AITrace.Exporter.FileTest do
       assert last_export.release_manifest_ref == "release:phase5-v7-m5"
     end
 
+    test "embeds per-node receipt and span evidence for multi-node joins", %{test_dir: test_dir} do
+      commit_hlc = %{
+        "w" => 1_776_947_200_000_000_000,
+        "l" => 2,
+        "n" => "node://aitrace_1@127.0.0.1/node-a"
+      }
+
+      {:ok, state} =
+        File.init(%{
+          directory: test_dir,
+          release_manifest_ref: "release:phase7-m7a",
+          evidence_owner_ref: "evidence-owner:aitrace-node-a",
+          source_node_ref: "node://aitrace_1@127.0.0.1/node-a",
+          node_instance_id: "node-instance-a",
+          boot_generation: 3,
+          node_role: "stacklab_probe",
+          deployment_ref: "deployment://phase7/local",
+          commit_lsn: "16/B374D848",
+          commit_hlc: commit_hlc
+        })
+
+      trace =
+        Trace.new("trace_node_a")
+        |> Trace.add_span(Span.new("node_a_operation") |> Span.finish())
+
+      assert {:ok, %{last_export: last_export}} = File.export(trace, state)
+
+      trace_export = read_json!(trace_file_path!(test_dir))
+      evidence = read_json!(evidence_file_path!(test_dir))
+
+      assert trace_export["source_node_ref"] == "node://aitrace_1@127.0.0.1/node-a"
+      assert trace_export["node_evidence"]["node_role"] == "stacklab_probe"
+
+      assert trace_export["node_order_evidence"] == %{
+               "commit_hlc" => commit_hlc,
+               "commit_lsn" => "16/B374D848",
+               "source_node_ref" => "node://aitrace_1@127.0.0.1/node-a",
+               "trace_id" => "trace_node_a"
+             }
+
+      assert hd(trace_export["spans"])["source_node_ref"] ==
+               "node://aitrace_1@127.0.0.1/node-a"
+
+      assert evidence["source_node_ref"] == "node://aitrace_1@127.0.0.1/node-a"
+      assert evidence["node_evidence"]["node_instance_id"] == "node-instance-a"
+      assert evidence["node_evidence"]["boot_generation"] == 3
+      assert evidence["node_order_evidence"] == trace_export["node_order_evidence"]
+      assert "source_node_ref" in evidence["proof_posture"]["requires"]
+
+      assert last_export.source_node_ref == "node://aitrace_1@127.0.0.1/node-a"
+      assert last_export.node_order_evidence.trace_id == "trace_node_a"
+    end
+
     test "marks unanchored exports as not authoritative proof", %{test_dir: test_dir} do
       {:ok, state} = File.init(%{directory: test_dir})
 

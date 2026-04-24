@@ -148,12 +148,18 @@ config :aitrace,
 
 *   **`AITrace.Exporter.File`** - Writes JSON traces to files
   - Options: `directory` (output directory, default: "./traces"),
-    `release_manifest_ref`, `evidence_owner_ref`
+    `release_manifest_ref`, `evidence_owner_ref`, `source_node_ref`,
+    `node_instance_id`, `boot_generation`, `node_role`, `deployment_ref`,
+    `cluster_ref`, `commit_lsn`, `commit_hlc`
   - The file exporter writes an adjacent `.evidence.json` receipt containing
     the trace artifact SHA-256, byte count, release-manifest or evidence-owner
     linkage, and proof posture. Trace data is not authoritative audit,
     incident, replay, review, or release-manifest proof unless the receipt is
     anchored by `release_manifest_ref` or an existing `evidence_owner_ref`.
+  - When `source_node_ref` is configured, the trace JSON, every exported span,
+    and the adjacent evidence receipt include per-node evidence. If `commit_lsn`
+    and `commit_hlc` are also configured, the receipt includes
+    `node_order_evidence` keyed by `trace_id` for proof-token joins.
   - Exported metadata and attributes are bounded by
     `AITrace.ExportBounds`; raw prompt/provider/webhook/payload-shaped fields
     and oversize values are replaced with SHA-256 spillover refs instead of
