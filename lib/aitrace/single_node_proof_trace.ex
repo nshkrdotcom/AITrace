@@ -15,6 +15,10 @@ defmodule AITrace.SingleNodeProofTrace do
     trace_exported
   )
 
+  @scenario_required_spans ~w(
+    proof_matrix_joined
+  )
+
   @repo_refs ~w(
     repo://nshkrdotcom/ground_plane
     repo://nshkrdotcom/execution_plane
@@ -66,6 +70,36 @@ defmodule AITrace.SingleNodeProofTrace do
     }
   end
 
+  @spec scenario_fixture(String.t(), map() | keyword()) :: map()
+  def scenario_fixture(scenario_id, attrs \\ %{})
+
+  def scenario_fixture(scenario_id, attrs) when is_list(attrs) do
+    scenario_fixture(scenario_id, Map.new(attrs))
+  end
+
+  def scenario_fixture(scenario_id, attrs) when is_binary(scenario_id) and is_map(attrs) do
+    evidence_ref =
+      Map.get(
+        attrs,
+        :evidence_ref,
+        "receipt://stack_lab/#{scenario_id}/latest"
+      )
+
+    attrs
+    |> Map.delete(:evidence_ref)
+    |> fixture()
+    |> Map.put("scenario_id", scenario_id)
+    |> append_span(%{
+      "name" => "proof_matrix_joined",
+      "status" => "pass",
+      "attributes" => %{
+        "scenario_id" => scenario_id,
+        "evidence_ref" => evidence_ref,
+        "proof_surface" => "stack_lab"
+      }
+    })
+  end
+
   @spec validate(map()) :: :ok | {:error, [term()]}
   def validate(%{} = fixture) do
     failures =
@@ -75,6 +109,7 @@ defmodule AITrace.SingleNodeProofTrace do
       |> require_present(:workspace_ref, fixture["workspace_ref"])
       |> require_present(:node_ref, fixture["node_ref"])
       |> require_required_spans(fixture["spans"])
+      |> require_scenario_spans(fixture)
       |> require_safe_proof_posture(fixture["proof_posture"])
       |> reject_denied_public_fields(fixture)
 
@@ -99,6 +134,10 @@ defmodule AITrace.SingleNodeProofTrace do
     end)
   end
 
+  defp append_span(%{"spans" => spans} = fixture, span) when is_list(spans) do
+    Map.put(fixture, "spans", spans ++ [span])
+  end
+
   defp proof_posture do
     %{
       "authoritative_audit?" => false,
@@ -120,10 +159,23 @@ defmodule AITrace.SingleNodeProofTrace do
   defp require_present(failures, field, _value), do: [{:missing, field} | failures]
 
   defp require_required_spans(failures, spans) when is_list(spans) do
+    require_spans(failures, spans, @required_spans)
+  end
+
+  defp require_required_spans(failures, _spans), do: [{:invalid, :spans} | failures]
+
+  defp require_scenario_spans(failures, %{"scenario_id" => scenario_id, "spans" => spans})
+       when is_binary(scenario_id) and is_list(spans) do
+    require_spans(failures, spans, @scenario_required_spans)
+  end
+
+  defp require_scenario_spans(failures, _fixture), do: failures
+
+  defp require_spans(failures, spans, required_spans) do
     present_names = MapSet.new(Enum.map(spans, & &1["name"]))
 
     missing =
-      @required_spans
+      required_spans
       |> Enum.reject(&MapSet.member?(present_names, &1))
 
     case missing do
@@ -131,8 +183,6 @@ defmodule AITrace.SingleNodeProofTrace do
       missing -> [{:missing_spans, missing} | failures]
     end
   end
-
-  defp require_required_spans(failures, _spans), do: [{:invalid, :spans} | failures]
 
   defp require_safe_proof_posture(failures, %{} = posture) do
     unsafe? =
@@ -146,13 +196,36 @@ defmodule AITrace.SingleNodeProofTrace do
   defp require_safe_proof_posture(failures, _posture), do: [{:invalid, :proof_posture} | failures]
 
   defp reject_denied_public_fields(failures, fixture) do
-    encoded = Jason.encode!(fixture)
-
-    hits = Enum.filter(@denylist, &String.contains?(encoded, &1))
+    hits =
+      fixture
+      |> denied_public_paths([])
+      |> Enum.sort()
 
     case hits do
       [] -> failures
       hits -> [{:denied_public_fields, hits} | failures]
     end
   end
+
+  defp denied_public_paths(%{} = map, path) do
+    Enum.flat_map(map, fn {key, value} ->
+      child_path = path ++ [to_string(key)]
+
+      if to_string(key) in @denylist do
+        [Enum.join(child_path, ".")]
+      else
+        denied_public_paths(value, child_path)
+      end
+    end)
+  end
+
+  defp denied_public_paths(list, path) when is_list(list) do
+    list
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {value, index} ->
+      denied_public_paths(value, path ++ [Integer.to_string(index)])
+    end)
+  end
+
+  defp denied_public_paths(_value, _path), do: []
 end

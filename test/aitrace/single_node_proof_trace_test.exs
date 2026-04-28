@@ -38,4 +38,42 @@ defmodule AITrace.SingleNodeProofTraceTest do
     assert {:error, failures} = SingleNodeProofTrace.validate(fixture)
     assert {:denied_public_fields, ["raw_prompt"]} in failures
   end
+
+  test "builds a scenario-specific trace fixture" do
+    fixture =
+      SingleNodeProofTrace.scenario_fixture("repo_agent_instruction_drift",
+        evidence_ref: "receipt://stack_lab/repo_agent_instruction_drift/latest"
+      )
+
+    assert fixture["schema_version"] == "aitrace.single_node_proof_trace.v1"
+    assert fixture["scenario_id"] == "repo_agent_instruction_drift"
+
+    assert Enum.any?(fixture["spans"], fn span ->
+             span["name"] == "proof_matrix_joined" and
+               span["attributes"]["evidence_ref"] ==
+                 "receipt://stack_lab/repo_agent_instruction_drift/latest"
+           end)
+
+    assert :ok = SingleNodeProofTrace.validate(fixture)
+  end
+
+  test "rejects nested denied public fields" do
+    fixture =
+      SingleNodeProofTrace.scenario_fixture("repo_agent_instruction_drift")
+      |> Map.put("public", %{"nested" => %{"token" => "unsafe"}})
+
+    assert {:error, failures} = SingleNodeProofTrace.validate(fixture)
+    assert {:denied_public_fields, ["public.nested.token"]} in failures
+  end
+
+  test "rejects scenario fixtures missing required evidence span" do
+    fixture =
+      SingleNodeProofTrace.scenario_fixture("repo_agent_instruction_drift")
+      |> Map.update!("spans", fn spans ->
+        Enum.reject(spans, &(&1["name"] == "proof_matrix_joined"))
+      end)
+
+    assert {:error, failures} = SingleNodeProofTrace.validate(fixture)
+    assert {:missing_spans, ["proof_matrix_joined"]} in failures
+  end
 end
