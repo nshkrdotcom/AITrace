@@ -1,3 +1,10 @@
+# AGENTS.md
+
+## Onboarding
+
+Read `ONBOARDING.md` first for the repo's one-screen ownership, first command,
+and proof path.
+
 <!-- gn-ten:repo-agent:start repo=AITrace source_sha=ab276c0640772b73065ab12bf05d77be51f1bb67 -->
 # AITrace Agent Instructions Draft
 
