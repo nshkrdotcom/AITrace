@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - Normalize configured exporter options centrally before initialization so keyword-configured exporters follow the same execution path as map-configured exporters.
 - Record the Citadel bridge-facing export-path hardening here as the compatibility note for the additive public-surface change.
+- Record ATOM-08 dynamic atom audit coverage for trace, export, receipt,
+  redaction, and artifact metadata surfaces. The required scan found no
+  runtime atom creation hits.
 
 ## [0.1.0] - 2025-10-29
 
