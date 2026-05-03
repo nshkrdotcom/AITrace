@@ -78,8 +78,14 @@ defmodule AITrace.Exporter.ConsoleTest do
           Console.export(trace, state)
         end)
 
-      # Duration shown in microseconds (μs), milliseconds (ms), or seconds (s)
-      assert output =~ ~r/(μs|ms|s)/
+      duration_line =
+        output
+        |> String.split("\n")
+        |> Enum.find(&String.contains?(&1, "operation"))
+
+      assert is_binary(duration_line)
+      assert String.contains?(duration_line, "(")
+      assert Enum.any?(["μs)", "ms)", "s)"], &String.contains?(duration_line, &1))
     end
 
     test "displays span attributes in verbose mode" do

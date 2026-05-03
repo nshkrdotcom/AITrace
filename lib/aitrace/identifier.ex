@@ -8,8 +8,6 @@ defmodule AITrace.Identifier do
   """
 
   @id_types [:trace, :span]
-  @generated_regex ~r/\A[0-9a-f]{32}\z/
-  @external_alias_regex ~r/\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\z/
   @generated_policy "aitrace-id-v1"
   @external_alias_policy "aitrace-external-alias-v1"
 
@@ -25,7 +23,7 @@ defmodule AITrace.Identifier do
 
   @spec source!(id_type(), String.t(), source_kind()) :: map()
   def source!(id_type, id, :aitrace_generated) when id_type in @id_types and is_binary(id) do
-    if Regex.match?(@generated_regex, id) do
+    if generated_id?(id) do
       %{
         id_type: id_type,
         kind: :aitrace_generated,
@@ -43,7 +41,7 @@ defmodule AITrace.Identifier do
   end
 
   def source!(id_type, id, :external_alias) when id_type in @id_types and is_binary(id) do
-    if Regex.match?(@external_alias_regex, id) do
+    if external_alias?(id) do
       %{
         id_type: id_type,
         kind: :external_alias,
@@ -59,10 +57,33 @@ defmodule AITrace.Identifier do
 
   @spec parent_span_source!(String.t()) :: map()
   def parent_span_source!(parent_span_id) when is_binary(parent_span_id) do
-    if Regex.match?(@generated_regex, parent_span_id) do
+    if generated_id?(parent_span_id) do
       source!(:span, parent_span_id, :aitrace_generated)
     else
       source!(:span, parent_span_id, :external_alias)
     end
   end
+
+  defp generated_id?(id) do
+    byte_size(id) == 32 and
+      id
+      |> :binary.bin_to_list()
+      |> Enum.all?(&lower_hex_byte?/1)
+  end
+
+  defp external_alias?(<<first, rest::binary>>) do
+    byte_size(rest) <= 127 and alnum_byte?(first) and
+      rest
+      |> :binary.bin_to_list()
+      |> Enum.all?(&external_alias_rest_byte?/1)
+  end
+
+  defp external_alias?(_id), do: false
+
+  defp lower_hex_byte?(byte), do: byte in ?0..?9 or byte in ?a..?f
+
+  defp alnum_byte?(byte), do: byte in ?A..?Z or byte in ?a..?z or byte in ?0..?9
+
+  defp external_alias_rest_byte?(byte),
+    do: alnum_byte?(byte) or byte in [?., ?_, ?:, ?-]
 end

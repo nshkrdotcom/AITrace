@@ -44,15 +44,13 @@ defmodule AITrace.ExportBounds do
     webhook_body
   )
 
-  @safe_key_regex ~r/\A[A-Za-z0-9_.:-]{1,64}\z/
-
   @type surface :: :trace_metadata | :span_attributes | :event_attributes
 
   @spec profile() :: map()
   def profile do
     %{
       schema_version: @schema_version,
-      trace_attribute_allowlist: "json_safe_keys_matching_[A-Za-z0-9_.:-]{1,64}",
+      trace_attribute_allowlist: "json_safe_ascii_key_chars_1_to_64",
       trace_attribute_blocklist: @blocked_field_fragments,
       max_attributes_per_map: @max_attributes_per_map,
       max_attribute_key_bytes: @max_key_bytes,
@@ -178,7 +176,18 @@ defmodule AITrace.ExportBounds do
     })
   end
 
-  defp safe_key?(key), do: byte_size(key) <= @max_key_bytes and Regex.match?(@safe_key_regex, key)
+  defp safe_key?(key) do
+    byte_size(key) in 1..@max_key_bytes and
+      key
+      |> :binary.bin_to_list()
+      |> Enum.all?(&safe_key_byte?/1)
+  end
+
+  defp safe_key_byte?(byte)
+       when byte in ?A..?Z or byte in ?a..?z or byte in ?0..?9 or byte in [?_, ?., ?:, ?-],
+       do: true
+
+  defp safe_key_byte?(_byte), do: false
 
   defp blocked_key?(key) do
     normalized = String.downcase(key)

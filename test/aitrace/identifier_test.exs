@@ -7,8 +7,8 @@ defmodule AITrace.IdentifierTest do
     trace_id = Identifier.generate(:trace)
     span_id = Identifier.generate(:span)
 
-    assert trace_id =~ ~r/\A[0-9a-f]{32}\z/
-    assert span_id =~ ~r/\A[0-9a-f]{32}\z/
+    assert lower_hex_id?(trace_id)
+    assert lower_hex_id?(span_id)
 
     assert Identifier.source!(:trace, trace_id, :aitrace_generated).kind ==
              :aitrace_generated
@@ -33,5 +33,12 @@ defmodule AITrace.IdentifierTest do
     assert_raise ArgumentError, fn ->
       Identifier.source!(:span, "", :external_alias)
     end
+  end
+
+  defp lower_hex_id?(id) do
+    byte_size(id) == 32 and
+      id
+      |> :binary.bin_to_list()
+      |> Enum.all?(fn byte -> byte in ?0..?9 or byte in ?a..?f end)
   end
 end
