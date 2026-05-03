@@ -10,6 +10,10 @@
 
 Its mission is to create an Elixir-native instrumentation library and a corresponding data model that captures the complete causal chain of an AI agent's reasoning process—from initial prompt to final output, including all thoughts, tool calls, and state changes—enabling a true "Execution Cinema" experience for developers and operators.
 
+Standalone tracing may use the `:aitrace, :exporters` application config.
+Governed callers must pass explicit exporters to `AITrace.export/2`; ambient
+application env must not select trace export sinks for governed evidence.
+
 ## The Problem: Why Traditional Observability Fails
 
 Debugging a simple web request is a solved problem. We have structured logs, metrics, and distributed tracing (like OpenTelemetry) that show the path of a request through a series of stateless services.

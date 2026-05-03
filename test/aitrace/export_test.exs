@@ -22,9 +22,25 @@ defmodule AITrace.ExportTest do
     end
   end
 
+  defmodule AmbientExporter do
+    @behaviour AITrace.Exporter
+
+    @impl true
+    def init(opts), do: {:ok, opts}
+
+    @impl true
+    def export(trace, %{test_pid: test_pid} = state) do
+      send(test_pid, {:ambient_exported_trace, trace, state})
+      {:ok, state}
+    end
+
+    @impl true
+    def shutdown(_state), do: :ok
+  end
+
   setup do
     previous_exporters = Application.get_env(:aitrace, :exporters)
-    on_exit(fn -> Application.put_env(:aitrace, :exporters, previous_exporters) end)
+    on_exit(fn -> restore_app_env(:aitrace, :exporters, previous_exporters) end)
     :ok
   end
 
@@ -47,6 +63,18 @@ defmodule AITrace.ExportTest do
     assert_receive {:exported_trace, ^trace, %{tag: :keyword, test_pid: test_pid}}
     assert test_pid == self()
     assert_receive :exporter_shutdown
+  end
+
+  test "explicit export path ignores ambient application env exporters" do
+    Application.put_env(:aitrace, :exporters, [{AmbientExporter, test_pid: self()}])
+    trace = completed_trace("trace-explicit")
+
+    assert :ok = AITrace.export(trace, [{TestExporter, test_pid: self(), tag: :explicit}])
+
+    assert_receive {:exported_trace, ^trace, %{tag: :explicit, test_pid: test_pid}}
+    assert test_pid == self()
+    assert_receive :exporter_shutdown
+    refute_received {:ambient_exported_trace, _trace, _state}
   end
 
   test "returns unavailable when no exporters are configured" do
@@ -81,4 +109,7 @@ defmodule AITrace.ExportTest do
     span = Span.new("operation") |> Span.finish()
     Trace.add_span(trace, span)
   end
+
+  defp restore_app_env(app, key, nil), do: Application.delete_env(app, key)
+  defp restore_app_env(app, key, value), do: Application.put_env(app, key, value)
 end
