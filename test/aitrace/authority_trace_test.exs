@@ -11,6 +11,8 @@ defmodule AITrace.AuthorityTraceTest do
     assert event.provider_account_ref == "provider-account://tenant-1/claude/main"
     assert event.credential_lease_ref == "credential-lease://tenant-1/claude/lease-1"
     assert event.redaction_policy_ref == "redaction-policy://tenant-1/authority"
+    assert event.provider_account_status == :asserted
+    assert event.identity_introspection_limit == :ref_only
     assert event.raw_material_present? == false
   end
 
@@ -43,8 +45,37 @@ defmodule AITrace.AuthorityTraceTest do
     assert attrs["authority_packet_ref"] == "authority-packet://tenant-1/packet-1"
     assert attrs["overflow_safe_action"] == "drop_raw_material_keep_ref"
     assert attrs["raw_material_present?"] == false
+    assert attrs["provider_account_status"] == :asserted
+    assert attrs["identity_introspection_limit"] == :ref_only
     refute inspect(attrs) =~ "secret"
     refute Map.has_key?(attrs, "provider_payload")
+  end
+
+  test "bounds provider-account identity status and introspection export" do
+    assert {:ok, event} =
+             valid_attrs()
+             |> Map.put(:provider_account_status, "rotated")
+             |> Map.put(:identity_introspection_limit, "redacted_summary")
+             |> AuthorityTrace.event()
+
+    attrs = AuthorityTrace.export_attributes(event)
+    assert attrs["provider_account_status"] == :rotated
+    assert attrs["identity_introspection_limit"] == :redacted_summary
+
+    assert {:error, {:invalid_trace_enum, :provider_account_status, :stale, allowed_statuses}} =
+             valid_attrs()
+             |> Map.put(:provider_account_status, :stale)
+             |> AuthorityTrace.event()
+
+    assert allowed_statuses == AuthorityTrace.provider_account_statuses()
+
+    assert {:error,
+            {:invalid_trace_enum, :identity_introspection_limit, :full_payload, allowed_limits}} =
+             valid_attrs()
+             |> Map.put(:identity_introspection_limit, :full_payload)
+             |> AuthorityTrace.event()
+
+    assert allowed_limits == AuthorityTrace.identity_introspection_limits()
   end
 
   defp valid_attrs do
@@ -63,7 +94,10 @@ defmodule AITrace.AuthorityTraceTest do
       operation_policy_ref: "operation-policy://tenant-1/claude/chat",
       redaction_policy_ref: "redaction-policy://tenant-1/authority",
       proof_artifact_ref: "proof-artifact://tenant-1/authority/1",
-      trace_ref: "trace://tenant-1/authority/1"
+      trace_ref: "trace://tenant-1/authority/1",
+      provider_account_status: :asserted,
+      provider_account_evidence_ref: "evidence://tenant-1/provider-account/1",
+      identity_introspection_limit: :ref_only
     }
   end
 end
