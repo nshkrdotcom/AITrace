@@ -65,6 +65,22 @@ defmodule AITrace.AuthorityTrace do
     :blocked
   ]
 
+  @event_names [
+    "authority.provider_dispatch",
+    "authority.provider_rejection",
+    "authority.provider_revocation",
+    "authority.provider_retry",
+    "authority.connector_admission",
+    "authority.credential_materialization"
+  ]
+
+  @redaction_classes [
+    "ref_only",
+    "hash_ref",
+    "redacted_summary",
+    "spillover_ref"
+  ]
+
   @event_fields @required_refs ++
                   [
                     :trace_ref,
@@ -130,17 +146,26 @@ defmodule AITrace.AuthorityTrace do
   @spec admission_states() :: [atom()]
   def admission_states, do: @admission_states
 
+  @spec event_names() :: [String.t()]
+  def event_names, do: @event_names
+
+  @spec redaction_classes() :: [String.t()]
+  def redaction_classes, do: @redaction_classes
+
   @spec event(map() | keyword()) ::
           {:ok, t()}
           | {:error, {:missing_required_refs, [atom()]}}
           | {:error, {:forbidden_trace_material, [atom()]}}
           | {:error, {:invalid_trace_enum, atom(), term(), [atom()]}}
+          | {:error, {:invalid_trace_value, atom(), term(), [String.t()]}}
   def event(attrs) when is_map(attrs) or is_list(attrs) do
     attrs = normalize(attrs)
 
     case forbidden_material_present(attrs) do
       [] ->
         with [] <- missing_required(attrs),
+             {:ok, event_name} <-
+               string_value(attrs, :event_name, @event_names, nil),
              {:ok, provider_account_status} <-
                enum_value(
                  attrs,
@@ -161,13 +186,17 @@ defmodule AITrace.AuthorityTrace do
                  :admission_state,
                  @admission_states,
                  :pending
-               ) do
+               ),
+             {:ok, redaction_class} <-
+               string_value(attrs, :redaction_class, @redaction_classes, "ref_only") do
           {:ok,
            build_event(
              attrs,
+             event_name,
              provider_account_status,
              identity_introspection_limit,
-             admission_state
+             admission_state,
+             redaction_class
            )}
         else
           missing when is_list(missing) -> {:error, {:missing_required_refs, missing}}
@@ -197,19 +226,22 @@ defmodule AITrace.AuthorityTrace do
 
   defp build_event(
          attrs,
+         event_name,
          provider_account_status,
          identity_introspection_limit,
-         admission_state
+         admission_state,
+         redaction_class
        ) do
     attrs =
       attrs
       |> Map.take(@event_fields)
+      |> Map.put(:event_name, event_name)
       |> Map.put(:provider_account_status, provider_account_status)
       |> Map.put(:identity_introspection_limit, identity_introspection_limit)
       |> Map.put(:admission_state, admission_state)
       |> Map.put(:proof_refs, List.wrap(Map.get(attrs, :proof_refs, [])))
       |> Map.put(:scanner_refs, List.wrap(Map.get(attrs, :scanner_refs, [])))
-      |> Map.put(:redaction_class, Map.get(attrs, :redaction_class, "ref_only"))
+      |> Map.put(:redaction_class, redaction_class)
       |> Map.put(:raw_material_present?, false)
       |> Map.put(:overflow_safe_action, @overflow_safe_action)
       |> Map.put(:contract_version, "AITrace.AuthorityTraceEvent.v1")
@@ -242,6 +274,20 @@ defmodule AITrace.AuthorityTrace do
 
       value ->
         {:error, {:invalid_trace_enum, field, value, allowed}}
+    end
+  end
+
+  defp string_value(attrs, field, allowed, default) do
+    case Map.get(attrs, field, default) do
+      value when is_binary(value) ->
+        if value in allowed do
+          {:ok, value}
+        else
+          {:error, {:invalid_trace_value, field, value, allowed}}
+        end
+
+      value ->
+        {:error, {:invalid_trace_value, field, value, allowed}}
     end
   end
 

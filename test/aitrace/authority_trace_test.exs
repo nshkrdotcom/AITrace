@@ -84,6 +84,33 @@ defmodule AITrace.AuthorityTraceTest do
     assert allowed_limits == AuthorityTrace.identity_introspection_limits()
   end
 
+  test "bounds authority event names and redaction classes as exact strings" do
+    assert {:ok, event} =
+             valid_attrs()
+             |> Map.put("event_name", "authority.provider_rejection")
+             |> Map.put("redaction_class", "redacted_summary")
+             |> AuthorityTrace.event()
+
+    assert event.event_name == "authority.provider_rejection"
+    assert event.redaction_class == "redacted_summary"
+
+    assert {:error,
+            {:invalid_trace_value, :event_name, "authority.provider_payload", allowed_events}} =
+             valid_attrs()
+             |> Map.put(:event_name, "authority.provider_payload")
+             |> AuthorityTrace.event()
+
+    assert allowed_events == AuthorityTrace.event_names()
+
+    assert {:error,
+            {:invalid_trace_value, :redaction_class, "raw_payload_inline", allowed_classes}} =
+             valid_attrs()
+             |> Map.put(:redaction_class, "raw_payload_inline")
+             |> AuthorityTrace.event()
+
+    assert allowed_classes == AuthorityTrace.redaction_classes()
+  end
+
   test "requires connector binding and admission projection refs for authority export" do
     assert {:error, {:missing_required_refs, missing}} =
              valid_attrs()
