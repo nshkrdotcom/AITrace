@@ -13,7 +13,11 @@ defmodule AITrace.AIPlatform do
     :memory_body,
     :raw_memory_body,
     :prompt_body,
+    :guard_payload,
+    :guard_violation_body,
+    :guard_violation_payload,
     :provider_payload,
+    :raw_guard,
     :secret,
     :token,
     :budget_amount,
@@ -22,7 +26,11 @@ defmodule AITrace.AIPlatform do
     "memory_body",
     "raw_memory_body",
     "prompt_body",
+    "guard_payload",
+    "guard_violation_body",
+    "guard_violation_payload",
     "provider_payload",
+    "raw_guard",
     "secret",
     "token",
     "budget_amount"
@@ -54,6 +62,27 @@ defmodule AITrace.AIPlatform do
   end
 
   def budget_exhaustion_event(locus, _attrs), do: {:error, {:invalid_budget_locus, locus}}
+
+  @spec prompt_resolution_span(map()) :: {:ok, Span.t()} | {:error, term()}
+  def prompt_resolution_span(attrs) when is_map(attrs) do
+    with {:ok, bounded} <- bounded_attrs(attrs, %{}) do
+      {:ok, Span.new("prompt.resolve") |> Span.with_attributes(bounded)}
+    end
+  end
+
+  @spec guard_evaluation_span(map()) :: {:ok, Span.t()} | {:error, term()}
+  def guard_evaluation_span(attrs) when is_map(attrs) do
+    with {:ok, bounded} <- bounded_attrs(attrs, %{}) do
+      {:ok, Span.new("guard.evaluate") |> Span.with_attributes(bounded)}
+    end
+  end
+
+  @spec guard_violation_event(map()) :: {:ok, Event.t()} | {:error, term()}
+  def guard_violation_event(attrs) when is_map(attrs) do
+    with {:ok, bounded} <- bounded_attrs(attrs, %{}) do
+      {:ok, Event.new("guard.violate", bounded)}
+    end
+  end
 
   defp bounded_attrs(attrs, additions) do
     with :ok <- reject_raw_payload(attrs) do

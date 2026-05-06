@@ -25,6 +25,9 @@ defmodule AITrace.ExportBounds do
     budget_amount
     cost_amount
     credential
+    guard_payload
+    guard_violation_body
+    guard_violation_payload
     memory_body
     memory_content
     password
@@ -35,6 +38,7 @@ defmodule AITrace.ExportBounds do
     provider_body
     provider_response
     raw_memory
+    raw_guard
     raw_payload
     raw_prompt
     raw_provider
@@ -87,6 +91,31 @@ defmodule AITrace.ExportBounds do
       redaction_policy_ref: @redaction_policy_ref,
       safe_action: "redact_amounts_above_export_threshold",
       blocked_field_fragments: ["budget_amount", "cost_amount"]
+    }
+  end
+
+  @spec prompt_body_class() :: map()
+  def prompt_body_class do
+    %{
+      class_ref: "aitrace.redaction.prompt_body.v1",
+      redaction_policy_ref: @redaction_policy_ref,
+      safe_action: "always_redact_prompt_body_to_hash_ref",
+      blocked_field_fragments: ["prompt_body", "prompt_content", "prompt_text", "raw_prompt"]
+    }
+  end
+
+  @spec guard_violation_excerpt_class() :: map()
+  def guard_violation_excerpt_class do
+    %{
+      class_ref: "aitrace.redaction.guard_violation_excerpt.v1",
+      redaction_policy_ref: @redaction_policy_ref,
+      safe_action: "bounded_excerpt_only_never_raw_payload",
+      blocked_field_fragments: [
+        "guard_payload",
+        "guard_violation_body",
+        "guard_violation_payload",
+        "raw_guard"
+      ]
     }
   end
 
