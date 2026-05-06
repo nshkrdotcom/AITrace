@@ -9,6 +9,12 @@ defmodule AITrace.ExportBoundsTest do
     assert ExportBounds.budget_amount_class().safe_action ==
              "redact_amounts_above_export_threshold"
 
+    assert ExportBounds.cost_amount_floor_class().safe_action ==
+             "redact_provider_amounts_below_floor_to_class"
+
+    assert ExportBounds.cost_amount_ceiling_class().safe_action ==
+             "hash_provider_amounts_above_ceiling_to_ref"
+
     assert ExportBounds.prompt_body_class().safe_action ==
              "always_redact_prompt_body_to_hash_ref"
 

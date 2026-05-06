@@ -95,6 +95,26 @@ defmodule AITrace.ExportBounds do
     }
   end
 
+  @spec cost_amount_floor_class() :: map()
+  def cost_amount_floor_class do
+    %{
+      class_ref: "aitrace.redaction.cost_amount_floor.v1",
+      redaction_policy_ref: @redaction_policy_ref,
+      safe_action: "redact_provider_amounts_below_floor_to_class",
+      blocked_field_fragments: ["cost_amount", "amount_native", "raw_amount"]
+    }
+  end
+
+  @spec cost_amount_ceiling_class() :: map()
+  def cost_amount_ceiling_class do
+    %{
+      class_ref: "aitrace.redaction.cost_amount_ceiling.v1",
+      redaction_policy_ref: @redaction_policy_ref,
+      safe_action: "hash_provider_amounts_above_ceiling_to_ref",
+      blocked_field_fragments: ["cost_amount", "amount_native", "raw_amount"]
+    }
+  end
+
   @spec prompt_body_class() :: map()
   def prompt_body_class do
     %{

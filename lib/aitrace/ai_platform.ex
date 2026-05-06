@@ -8,6 +8,13 @@ defmodule AITrace.AIPlatform do
   @memory_operations [:write, :read, :evict]
   @budget_loci [:preflight, :append, :stream, :runtime_admission, :reconciliation]
   @replay_events [:replay_executed, :eval_case, :drift_signal]
+  @cost_classes [:production, :replay, :eval, :simulation, :infrastructure]
+  @amount_classes [
+    :production_native,
+    :redacted_below_floor,
+    :redacted_above_ceiling,
+    :bounded_excerpt
+  ]
   @raw_payload_keys [
     :body,
     :raw_body,
@@ -68,6 +75,15 @@ defmodule AITrace.AIPlatform do
 
   def budget_exhaustion_event(locus, _attrs), do: {:error, {:invalid_budget_locus, locus}}
 
+  @spec budget_exhaust_event(atom(), map()) :: {:ok, Event.t()} | {:error, term()}
+  def budget_exhaust_event(locus, attrs) when locus in @budget_loci and is_map(attrs) do
+    with {:ok, bounded} <- bounded_attrs(attrs, %{locus: Atom.to_string(locus)}) do
+      {:ok, Event.new("budget.exhaust", bounded)}
+    end
+  end
+
+  def budget_exhaust_event(locus, _attrs), do: {:error, {:invalid_budget_locus, locus}}
+
   @spec prompt_resolution_span(map()) :: {:ok, Span.t()} | {:error, term()}
   def prompt_resolution_span(attrs) when is_map(attrs) do
     with {:ok, bounded} <- bounded_attrs(attrs, %{}) do
@@ -103,6 +119,22 @@ defmodule AITrace.AIPlatform do
     end
   end
 
+  @spec cost_span(map()) :: {:ok, Span.t()} | {:error, term()}
+  def cost_span(attrs) when is_map(attrs) do
+    with {:ok, additions} <- cost_additions(attrs),
+         {:ok, bounded} <- bounded_attrs(attrs, additions) do
+      {:ok, Span.new("cost.attribute") |> Span.with_attributes(bounded)}
+    end
+  end
+
+  @spec cost_attribution_event(map()) :: {:ok, Event.t()} | {:error, term()}
+  def cost_attribution_event(attrs) when is_map(attrs) do
+    with {:ok, additions} <- cost_additions(attrs),
+         {:ok, bounded} <- bounded_attrs(attrs, additions) do
+      {:ok, Event.new("cost.attribute", bounded)}
+    end
+  end
+
   @spec replay_event(atom(), map()) :: {:ok, Event.t()} | {:error, term()}
   def replay_event(event, attrs) when event in @replay_events and is_map(attrs) do
     with {:ok, bounded} <- bounded_attrs(attrs, %{event_class: Atom.to_string(event)}) do
@@ -119,6 +151,37 @@ defmodule AITrace.AIPlatform do
        |> Map.merge(additions)
        |> Map.put_new(:redaction_posture, "bounded_refs_only")
        |> ExportBounds.bound_map!(surface: :span_attributes)}
+    end
+  end
+
+  defp cost_additions(attrs) do
+    with {:ok, cost_class} <- enum_value(attrs, :cost_class, @cost_classes),
+         {:ok, amount_class} <- enum_value(attrs, :amount_class, @amount_classes) do
+      {:ok,
+       %{
+         cost_class: Atom.to_string(cost_class),
+         amount_class: Atom.to_string(amount_class)
+       }}
+    end
+  end
+
+  defp enum_value(attrs, field, allowed) do
+    case Map.get(attrs, field) || Map.get(attrs, Atom.to_string(field)) do
+      value when is_atom(value) ->
+        if value in allowed do
+          {:ok, value}
+        else
+          {:error, {:unknown_ai_platform_trace_enum, field}}
+        end
+
+      value when is_binary(value) ->
+        case Enum.find(allowed, &(Atom.to_string(&1) == value)) do
+          nil -> {:error, {:unknown_ai_platform_trace_enum, field}}
+          found -> {:ok, found}
+        end
+
+      _value ->
+        {:error, {:unknown_ai_platform_trace_enum, field}}
     end
   end
 

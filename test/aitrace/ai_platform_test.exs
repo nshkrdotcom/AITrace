@@ -44,6 +44,34 @@ defmodule AITrace.AIPlatformTest do
     assert {:ok, event} = AIPlatform.budget_exhaustion_event(:preflight, attrs)
     assert event.name == "budget.exhausted"
     assert event.attributes["decision_class"] == "deny_exhausted"
+
+    assert {:ok, exhaust_event} = AIPlatform.budget_exhaust_event(:preflight, attrs)
+    assert exhaust_event.name == "budget.exhaust"
+  end
+
+  test "cost spans and events carry bounded cost attributes" do
+    attrs = %{
+      cost_class: :production,
+      amount_class: :redacted_below_floor,
+      prompt_tokens: 10,
+      completion_tokens: 5,
+      cache_read_tokens: 2,
+      cache_write_tokens: 1,
+      provider_family: :codex_cli,
+      model_ref: "model://codex/latest"
+    }
+
+    assert {:ok, span} = AIPlatform.cost_span(attrs)
+    assert span.name == "cost.attribute"
+    assert span.attributes["cost_class"] == "production"
+    assert span.attributes["amount_class"] == "redacted_below_floor"
+
+    assert {:ok, event} = AIPlatform.cost_attribution_event(attrs)
+    assert event.name == "cost.attribute"
+    assert event.attributes["provider_family"] == "codex_cli"
+
+    assert {:error, {:raw_ai_platform_trace_payload_forbidden, :budget_amount}} =
+             AIPlatform.cost_attribution_event(Map.put(attrs, :budget_amount, 10))
   end
 
   test "prompt and guard spans carry bounded refs and reject raw guard material" do
