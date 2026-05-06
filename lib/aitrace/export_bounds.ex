@@ -37,6 +37,7 @@ defmodule AITrace.ExportBounds do
     prompt_text
     provider_body
     provider_response
+    replay_divergence_excerpt
     raw_memory
     raw_guard
     raw_payload
@@ -115,6 +116,21 @@ defmodule AITrace.ExportBounds do
         "guard_violation_body",
         "guard_violation_payload",
         "raw_guard"
+      ]
+    }
+  end
+
+  @spec replay_divergence_excerpt_class() :: map()
+  def replay_divergence_excerpt_class do
+    %{
+      class_ref: "aitrace.redaction.replay_divergence_excerpt.v1",
+      redaction_policy_ref: @redaction_policy_ref,
+      safe_action: "bounded_or_hash_ref_only",
+      blocked_field_fragments: [
+        "model_output",
+        "provider_response",
+        "raw_output",
+        "replay_divergence_excerpt"
       ]
     }
   end

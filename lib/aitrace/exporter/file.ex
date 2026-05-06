@@ -37,9 +37,11 @@ defmodule AITrace.Exporter.File do
   @behaviour AITrace.Exporter
 
   alias AITrace.{Clock, Event, ExportBounds, Span, Trace}
+  alias AITrace.Trace.ReplayBundle
 
   @schema_version "aitrace.file_export.v1"
   @evidence_schema_version "aitrace.file_export_evidence.v1"
+  @replay_bundle_schema_version "aitrace.replay_bundle_export.v1"
   @proof_contexts ~w(audit incident replay review release_manifest)
 
   @impl true
@@ -89,6 +91,17 @@ defmodule AITrace.Exporter.File do
     end
   end
 
+  @doc """
+  Writes a replay bundle into a replay-specific export directory with evidence.
+  """
+  @spec export_replay_bundle(ReplayBundle.t() | map(), map()) :: {:ok, map()} | {:error, term()}
+  def export_replay_bundle(bundle_or_attrs, state) when is_map(state) do
+    case normalize_replay_bundle(bundle_or_attrs) do
+      {:ok, bundle} -> export_normalized_replay_bundle(bundle, state)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @impl true
   def shutdown(_state) do
     :ok
@@ -101,6 +114,7 @@ defmodule AITrace.Exporter.File do
       %{
         exporter_schema_version: @schema_version,
         export_bounds: ExportBounds.profile(),
+        replay_addressable?: trace.replay_addressable?,
         release_manifest_ref: state.release_manifest_ref,
         exported_at_wall_time: exported_at_wall_time,
         trace_id: trace.trace_id,
@@ -116,6 +130,115 @@ defmodule AITrace.Exporter.File do
 
     Jason.encode!(data, pretty: true)
   end
+
+  defp normalize_replay_bundle(%ReplayBundle{} = bundle), do: {:ok, bundle}
+  defp normalize_replay_bundle(attrs) when is_map(attrs), do: ReplayBundle.new(attrs)
+  defp normalize_replay_bundle(_attrs), do: {:error, :invalid_replay_bundle}
+
+  defp source_trace_ref_present(%ReplayBundle{source_trace_ref: source_trace_ref}) do
+    if present_ref?(source_trace_ref) do
+      :ok
+    else
+      {:error, :missing_replay_source_trace_ref}
+    end
+  end
+
+  defp export_normalized_replay_bundle(%ReplayBundle{} = bundle, state) do
+    case source_trace_ref_present(bundle) do
+      :ok -> write_replay_bundle(bundle, state)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp write_replay_bundle(%ReplayBundle{} = bundle, state) do
+    exported_at_wall_time = Clock.wall_time_iso8601(Clock.wall_time())
+    replay_dir = Path.join(state.directory, "replay_bundles")
+    json = encode_replay_bundle(bundle, state, exported_at_wall_time)
+    filename = replay_bundle_filename(bundle)
+    file_path = Path.join(replay_dir, filename)
+
+    case File.mkdir_p(replay_dir) do
+      :ok ->
+        write_replay_bundle_file(file_path, bundle, state, filename, json, exported_at_wall_time)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp write_replay_bundle_file(file_path, bundle, state, filename, json, exported_at_wall_time) do
+    case File.write(file_path, json) do
+      :ok -> write_replay_bundle_evidence(bundle, state, filename, json, exported_at_wall_time)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp encode_replay_bundle(%ReplayBundle{} = bundle, state, exported_at_wall_time) do
+    data =
+      %{
+        replay_bundle_schema_version: @replay_bundle_schema_version,
+        export_bounds: ExportBounds.replay_divergence_excerpt_class(),
+        exported_at_wall_time: exported_at_wall_time,
+        release_manifest_ref: state.release_manifest_ref || bundle.release_manifest_ref,
+        bundle_ref: bundle.bundle_ref,
+        source_trace_ref: bundle.source_trace_ref,
+        replay_trace_ref: bundle.replay_trace_ref,
+        divergence_list_ref: bundle.divergence_list_ref,
+        audit_ref: bundle.audit_ref,
+        redaction_policy_ref: bundle.redaction_policy_ref
+      }
+      |> maybe_put_node_evidence(state.node_evidence)
+
+    Jason.encode!(data, pretty: true)
+  end
+
+  defp write_replay_bundle_evidence(bundle, state, filename, json, exported_at_wall_time) do
+    evidence_filename = String.replace_suffix(filename, ".json", ".evidence.json")
+
+    receipt =
+      %{
+        evidence_schema_version: @evidence_schema_version,
+        replay_bundle_schema_version: @replay_bundle_schema_version,
+        bundle_ref: bundle.bundle_ref,
+        replay_bundle_artifact_ref: filename,
+        evidence_receipt_ref: evidence_filename,
+        replay_bundle_artifact_sha256: sha256(json),
+        replay_bundle_artifact_bytes: byte_size(json),
+        hash_algorithm: "sha256",
+        source_trace_ref: bundle.source_trace_ref,
+        replay_trace_ref: bundle.replay_trace_ref,
+        release_manifest_ref: state.release_manifest_ref || bundle.release_manifest_ref,
+        exported_at_wall_time: exported_at_wall_time,
+        proof_posture: proof_posture(state)
+      }
+      |> maybe_put_node_evidence(state.node_evidence)
+
+    evidence_path = Path.join([state.directory, "replay_bundles", evidence_filename])
+
+    case File.write(evidence_path, Jason.encode!(receipt, pretty: true)) do
+      :ok -> {:ok, receipt}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp replay_bundle_filename(%ReplayBundle{} = bundle) do
+    bundle.bundle_ref
+    |> safe_filename_component()
+    |> then(&(&1 <> ".json"))
+  end
+
+  defp safe_filename_component(value) when is_binary(value) do
+    value
+    |> String.to_charlist()
+    |> Enum.map(&safe_filename_char/1)
+    |> List.to_string()
+  end
+
+  defp safe_filename_char(byte)
+       when byte in ?A..?Z or byte in ?a..?z or byte in ?0..?9 or byte in [?_, ?., ?-],
+       do: byte
+
+  defp safe_filename_char(_byte), do: ?_
 
   defp write_evidence_receipt(
          %Trace{} = trace,

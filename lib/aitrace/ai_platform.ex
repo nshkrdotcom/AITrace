@@ -7,6 +7,7 @@ defmodule AITrace.AIPlatform do
 
   @memory_operations [:write, :read, :evict]
   @budget_loci [:preflight, :append, :stream, :runtime_admission, :reconciliation]
+  @replay_events [:replay_executed, :eval_case, :drift_signal]
   @raw_payload_keys [
     :body,
     :raw_body,
@@ -17,6 +18,8 @@ defmodule AITrace.AIPlatform do
     :guard_violation_body,
     :guard_violation_payload,
     :provider_payload,
+    :model_output,
+    :replay_divergence_excerpt,
     :raw_guard,
     :secret,
     :token,
@@ -30,6 +33,8 @@ defmodule AITrace.AIPlatform do
     "guard_violation_body",
     "guard_violation_payload",
     "provider_payload",
+    "model_output",
+    "replay_divergence_excerpt",
     "raw_guard",
     "secret",
     "token",
@@ -83,6 +88,29 @@ defmodule AITrace.AIPlatform do
       {:ok, Event.new("guard.violate", bounded)}
     end
   end
+
+  @spec replay_span(map()) :: {:ok, Span.t()} | {:error, term()}
+  def replay_span(attrs) when is_map(attrs) do
+    with {:ok, bounded} <- bounded_attrs(attrs, %{cost_class: "replay"}) do
+      {:ok, Span.new("replay.execute") |> Span.with_attributes(bounded)}
+    end
+  end
+
+  @spec eval_span(map()) :: {:ok, Span.t()} | {:error, term()}
+  def eval_span(attrs) when is_map(attrs) do
+    with {:ok, bounded} <- bounded_attrs(attrs, %{cost_class: "eval"}) do
+      {:ok, Span.new("eval.run") |> Span.with_attributes(bounded)}
+    end
+  end
+
+  @spec replay_event(atom(), map()) :: {:ok, Event.t()} | {:error, term()}
+  def replay_event(event, attrs) when event in @replay_events and is_map(attrs) do
+    with {:ok, bounded} <- bounded_attrs(attrs, %{event_class: Atom.to_string(event)}) do
+      {:ok, Event.new("replay." <> Atom.to_string(event), bounded)}
+    end
+  end
+
+  def replay_event(event, _attrs), do: {:error, {:invalid_replay_event, event}}
 
   defp bounded_attrs(attrs, additions) do
     with :ok <- reject_raw_payload(attrs) do

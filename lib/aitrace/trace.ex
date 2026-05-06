@@ -18,7 +18,8 @@ defmodule AITrace.Trace do
           metadata: map(),
           created_at: integer(),
           created_at_wall_time: DateTime.t(),
-          clock_domain: map()
+          clock_domain: map(),
+          replay_addressable?: boolean()
         }
 
   defstruct [
@@ -27,6 +28,7 @@ defmodule AITrace.Trace do
     :created_at,
     :created_at_wall_time,
     :clock_domain,
+    replay_addressable?: true,
     spans: [],
     metadata: %{}
   ]
@@ -53,7 +55,8 @@ defmodule AITrace.Trace do
       metadata: %{},
       created_at: Clock.monotonic_time(),
       created_at_wall_time: Clock.wall_time(),
-      clock_domain: Clock.clock_domain()
+      clock_domain: Clock.clock_domain(),
+      replay_addressable?: true
     }
   end
 
@@ -104,6 +107,21 @@ defmodule AITrace.Trace do
   def with_metadata(%__MODULE__{} = trace, metadata) when is_map(metadata) do
     %{trace | metadata: Map.merge(trace.metadata, metadata)}
   end
+
+  @doc """
+  Marks whether the trace can be replayed from exported refs.
+  """
+  @spec mark_replay_addressable(t(), boolean()) :: t()
+  def mark_replay_addressable(%__MODULE__{} = trace, replay_addressable?)
+      when is_boolean(replay_addressable?) do
+    %{trace | replay_addressable?: replay_addressable?}
+  end
+
+  @doc """
+  Returns true when the trace carries replay-addressable export posture.
+  """
+  @spec replay_addressable?(t()) :: boolean()
+  def replay_addressable?(%__MODULE__{} = trace), do: trace.replay_addressable?
 
   @doc """
   Returns all root spans (spans with no parent).
