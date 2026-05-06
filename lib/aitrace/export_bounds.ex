@@ -22,7 +22,11 @@ defmodule AITrace.ExportBounds do
     access_token
     api_token
     authorization
+    budget_amount
+    cost_amount
     credential
+    memory_body
+    memory_content
     password
     payload_body
     prompt_body
@@ -30,6 +34,7 @@ defmodule AITrace.ExportBounds do
     prompt_text
     provider_body
     provider_response
+    raw_memory
     raw_payload
     raw_prompt
     raw_provider
@@ -62,6 +67,26 @@ defmodule AITrace.ExportBounds do
       hash_or_tokenize_fields: @blocked_field_fragments,
       spillover_artifact_policy: @spillover_policy,
       overflow_safe_action: @overflow_safe_action
+    }
+  end
+
+  @spec memory_body_class() :: map()
+  def memory_body_class do
+    %{
+      class_ref: "aitrace.redaction.memory_body.v1",
+      redaction_policy_ref: @redaction_policy_ref,
+      safe_action: "hash_ref_or_redacted_excerpt_only",
+      blocked_field_fragments: ["memory_body", "memory_content", "raw_memory"]
+    }
+  end
+
+  @spec budget_amount_class() :: map()
+  def budget_amount_class do
+    %{
+      class_ref: "aitrace.redaction.budget_amount.v1",
+      redaction_policy_ref: @redaction_policy_ref,
+      safe_action: "redact_amounts_above_export_threshold",
+      blocked_field_fragments: ["budget_amount", "cost_amount"]
     }
   end
 
