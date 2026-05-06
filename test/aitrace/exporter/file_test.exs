@@ -284,7 +284,11 @@ defmodule AITrace.Exporter.FileTest do
       assert data["metadata"]["safe_ref"] == "release:phase5"
       assert data["metadata"]["prompt_hash"] == "sha256:already-redacted"
       refute Map.has_key?(data["metadata"], "raw_prompt")
-      assert data["metadata"]["long_value"]["ref"] =~ "aitrace://export-spillover/"
+
+      assert String.contains?(
+               data["metadata"]["long_value"]["ref"],
+               "aitrace://export-spillover/"
+             )
 
       metadata_overflow = data["metadata"]["_aitrace_export_overflow"]
       assert metadata_overflow["overflow_safe_action"] == "spill_to_artifact_ref"
@@ -302,10 +306,10 @@ defmodule AITrace.Exporter.FileTest do
       refute Map.has_key?(event_attrs, "provider_response")
       assert event_attrs["_aitrace_export_overflow"]["count"] == 1
 
-      refute encoded =~ "the original prompt must not be serialized"
-      refute encoded =~ "raw provider body must not be serialized"
-      refute encoded =~ "raw webhook body must not be serialized"
-      refute encoded =~ "raw response must not be serialized"
+      refute String.contains?(encoded, "the original prompt must not be serialized")
+      refute String.contains?(encoded, "raw provider body must not be serialized")
+      refute String.contains?(encoded, "raw webhook body must not be serialized")
+      refute String.contains?(encoded, "raw response must not be serialized")
     end
 
     test "filename includes trace_id and timestamp", %{test_dir: test_dir} do
@@ -316,8 +320,8 @@ defmodule AITrace.Exporter.FileTest do
 
       filename = Path.basename(trace_file_path!(test_dir))
 
-      assert filename =~ "my_trace"
-      assert filename =~ ".json"
+      assert String.contains?(filename, "my_trace")
+      assert String.contains?(filename, ".json")
     end
   end
 

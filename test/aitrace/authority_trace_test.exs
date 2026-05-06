@@ -53,7 +53,7 @@ defmodule AITrace.AuthorityTraceTest do
     assert attrs["raw_material_present?"] == false
     assert attrs["provider_account_status"] == :asserted
     assert attrs["identity_introspection_limit"] == :ref_only
-    refute inspect(attrs) =~ "secret"
+    refute String.contains?(inspect(attrs), "secret")
     refute Map.has_key?(attrs, "provider_payload")
   end
 

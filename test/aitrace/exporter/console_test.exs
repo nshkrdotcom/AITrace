@@ -38,8 +38,8 @@ defmodule AITrace.Exporter.ConsoleTest do
           Console.export(trace, state)
         end)
 
-      assert output =~ "Trace: test_trace_123"
-      assert output =~ "root_operation"
+      assert String.contains?(output, "Trace: test_trace_123")
+      assert String.contains?(output, "root_operation")
     end
 
     test "displays span hierarchy" do
@@ -59,8 +59,8 @@ defmodule AITrace.Exporter.ConsoleTest do
           Console.export(trace, state)
         end)
 
-      assert output =~ "root"
-      assert output =~ "child"
+      assert String.contains?(output, "root")
+      assert String.contains?(output, "child")
     end
 
     test "shows span duration when available" do
@@ -103,8 +103,8 @@ defmodule AITrace.Exporter.ConsoleTest do
           Console.export(trace, %{verbose: true})
         end)
 
-      assert output =~ "user_id"
-      assert output =~ "42"
+      assert String.contains?(output, "user_id")
+      assert String.contains?(output, "42")
     end
 
     test "displays events within spans" do
@@ -123,7 +123,7 @@ defmodule AITrace.Exporter.ConsoleTest do
           Console.export(trace, %{verbose: true})
         end)
 
-      assert output =~ "cache_miss"
+      assert String.contains?(output, "cache_miss")
     end
   end
 
