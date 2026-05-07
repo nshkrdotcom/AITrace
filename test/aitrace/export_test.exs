@@ -83,6 +83,17 @@ defmodule AITrace.ExportTest do
     assert {:error, :unavailable} = AITrace.export(completed_trace("trace-3"))
   end
 
+  test "capture off skips trace retention without failing the caller" do
+    Application.put_env(:aitrace, :exporters, [])
+
+    trace =
+      "trace-off"
+      |> completed_trace()
+      |> Trace.with_persistence_posture(persistence_profile: :off)
+
+    assert :ok = AITrace.export(trace)
+  end
+
   test "collector state is not authoritative proof evidence" do
     assert AITrace.Collector.authoritative_evidence?() == false
 

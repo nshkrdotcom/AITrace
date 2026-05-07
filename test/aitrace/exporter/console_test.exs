@@ -107,6 +107,26 @@ defmodule AITrace.Exporter.ConsoleTest do
       assert String.contains?(output, "42")
     end
 
+    test "redacts raw-shaped verbose attributes before printing" do
+      trace = Trace.new("trace_123")
+
+      span =
+        Span.new("operation")
+        |> Span.with_attributes(%{raw_prompt: "do-not-print", safe_ref: "trace://safe"})
+        |> Span.finish()
+
+      trace = Trace.add_span(trace, span)
+
+      output =
+        capture_io(fn ->
+          Console.export(trace, %{verbose: true})
+        end)
+
+      assert String.contains?(output, "safe_ref")
+      refute String.contains?(output, "do-not-print")
+      refute String.contains?(output, "raw_prompt")
+    end
+
     test "displays events within spans" do
       trace = Trace.new("trace_123")
       event = Event.new("cache_miss", %{key: "user_123"})

@@ -14,10 +14,11 @@ defmodule AITrace.Event do
           timestamp: integer(),
           wall_time: DateTime.t(),
           clock_domain: map(),
+          persistence_posture: AITrace.PersistencePosture.t(),
           attributes: map()
         }
 
-  defstruct [:name, :timestamp, :wall_time, :clock_domain, attributes: %{}]
+  defstruct [:name, :timestamp, :wall_time, :clock_domain, :persistence_posture, attributes: %{}]
 
   @doc """
   Creates a new event with a name and attributes.
@@ -37,7 +38,16 @@ defmodule AITrace.Event do
       timestamp: AITrace.Clock.monotonic_time(),
       wall_time: AITrace.Clock.wall_time(),
       clock_domain: AITrace.Clock.clock_domain(),
+      persistence_posture: AITrace.PersistencePosture.memory_ring(:event),
       attributes: attributes
     }
+  end
+
+  @doc """
+  Sets the capture/persistence posture for the event.
+  """
+  @spec with_persistence_posture(t(), map() | keyword()) :: t()
+  def with_persistence_posture(%__MODULE__{} = event, attrs) do
+    %{event | persistence_posture: AITrace.PersistencePosture.resolve(:event, attrs)}
   end
 end

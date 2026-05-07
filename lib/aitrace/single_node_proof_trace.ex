@@ -8,6 +8,8 @@ defmodule AITrace.SingleNodeProofTrace do
 
   @schema_version "aitrace.single_node_proof_trace.v1"
 
+  alias AITrace.PersistencePosture
+
   @required_spans ~w(
     workspace_manifest_validated
     repo_local_ci
@@ -142,6 +144,8 @@ defmodule AITrace.SingleNodeProofTrace do
     %{
       "authoritative_audit?" => false,
       "production_deployment_proven?" => false,
+      "persistence_posture" =>
+        PersistencePosture.export_attributes(PersistencePosture.memory_ring(:proof_trace)),
       "safe_action" => "use_as_development_trace_fixture"
     }
   end

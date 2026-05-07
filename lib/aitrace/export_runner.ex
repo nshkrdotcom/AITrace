@@ -1,14 +1,22 @@
 defmodule AITrace.ExportRunner do
   @moduledoc false
 
-  alias AITrace.Trace
+  alias AITrace.{PersistencePosture, Trace}
 
   @type exporter_config :: module() | {module(), keyword() | map()}
 
   @spec export(Trace.t(), [exporter_config()]) :: :ok | {:error, term()}
-  def export(%Trace{}, []), do: {:error, :unavailable}
-
   def export(%Trace{} = trace, exporters) when is_list(exporters) do
+    if PersistencePosture.retained?(trace.persistence_posture) do
+      export_retained(trace, exporters)
+    else
+      :ok
+    end
+  end
+
+  defp export_retained(%Trace{}, []), do: {:error, :unavailable}
+
+  defp export_retained(%Trace{} = trace, exporters) do
     Enum.reduce_while(exporters, :ok, fn exporter_config, :ok ->
       case export_with(trace, exporter_config) do
         :ok -> {:cont, :ok}

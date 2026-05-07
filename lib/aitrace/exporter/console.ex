@@ -13,7 +13,7 @@ defmodule AITrace.Exporter.Console do
 
   @behaviour AITrace.Exporter
 
-  alias AITrace.{Event, Span, Trace}
+  alias AITrace.{Event, ExportBounds, Span, Trace}
 
   @impl true
   def init(opts) when is_list(opts) do
@@ -34,7 +34,8 @@ defmodule AITrace.Exporter.Console do
     IO.puts("\n" <> header("Trace: #{trace.trace_id}", state))
 
     if map_size(trace.metadata) > 0 and state.verbose do
-      IO.puts("  Metadata: #{inspect(trace.metadata)}")
+      metadata = ExportBounds.bound_map!(trace.metadata, surface: :trace_metadata)
+      IO.puts("  Metadata: #{inspect(metadata)}")
     end
 
     root_spans = Trace.get_root_spans(trace)
@@ -62,7 +63,8 @@ defmodule AITrace.Exporter.Console do
     IO.puts("#{indent}▸ #{span.name} #{duration_str} #{status_str}")
 
     if state.verbose and map_size(span.attributes) > 0 do
-      IO.puts("#{indent}  Attributes: #{inspect(span.attributes)}")
+      attributes = ExportBounds.bound_map!(span.attributes, surface: :span_attributes)
+      IO.puts("#{indent}  Attributes: #{inspect(attributes)}")
     end
 
     if state.verbose and span.events != [] do
@@ -83,7 +85,8 @@ defmodule AITrace.Exporter.Console do
     IO.puts("#{indent}  • #{event.name}")
 
     if map_size(event.attributes) > 0 do
-      IO.puts("#{indent}    #{inspect(event.attributes)}")
+      attributes = ExportBounds.bound_map!(event.attributes, surface: :event_attributes)
+      IO.puts("#{indent}    #{inspect(attributes)}")
     end
   end
 

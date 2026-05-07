@@ -68,9 +68,48 @@ defmodule AITrace.ExportBounds do
       max_collection_items: @max_collection_items,
       max_map_depth: @max_map_depth,
       sample_policy: "always_keep_security",
+      default_capture_level_ref: "capture-level://redacted-memory-ring",
+      optional_capture_off_ref: "capture-level://off",
       redaction_policy_ref: @redaction_policy_ref,
       hash_or_tokenize_fields: @blocked_field_fragments,
       spillover_artifact_policy: @spillover_policy,
+      overflow_safe_action: @overflow_safe_action
+    }
+  end
+
+  @spec capture_profile(:off | :memory_ring | :redacted_debug | :durable_redacted) :: map()
+  def capture_profile(:off) do
+    %{
+      capture_level_ref: "capture-level://off",
+      retained?: false,
+      raw_payload_persistence?: false,
+      overflow_safe_action: "drop_without_mutating_provider_effect"
+    }
+  end
+
+  def capture_profile(:memory_ring) do
+    %{
+      capture_level_ref: "capture-level://redacted-memory-ring",
+      retained?: true,
+      raw_payload_persistence?: false,
+      overflow_safe_action: @overflow_safe_action
+    }
+  end
+
+  def capture_profile(:redacted_debug) do
+    %{
+      capture_level_ref: "capture-level://redacted-debug",
+      retained?: true,
+      raw_payload_persistence?: false,
+      overflow_safe_action: @overflow_safe_action
+    }
+  end
+
+  def capture_profile(:durable_redacted) do
+    %{
+      capture_level_ref: "capture-level://redacted-summary",
+      retained?: true,
+      raw_payload_persistence?: false,
       overflow_safe_action: @overflow_safe_action
     }
   end

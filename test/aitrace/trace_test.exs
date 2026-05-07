@@ -24,6 +24,16 @@ defmodule AITrace.TraceTest do
       assert trace.metadata == %{}
     end
 
+    test "defaults to redacted memory-ring persistence posture" do
+      trace = Trace.new("trace_123")
+
+      assert trace.persistence_posture.persistence_profile_ref ==
+               "persistence-profile://mickey-mouse"
+
+      assert trace.persistence_posture.capture_level_ref == "capture-level://redacted-memory-ring"
+      assert trace.persistence_posture.raw_payload_persistence? == false
+    end
+
     test "sets created_at timestamp" do
       before = System.monotonic_time(:microsecond)
       trace = Trace.new("trace_123")
@@ -110,6 +120,22 @@ defmodule AITrace.TraceTest do
       new_trace = Trace.with_metadata(trace, %{b: 2})
 
       assert new_trace.metadata == %{a: 1, b: 2}
+    end
+  end
+
+  describe "with_persistence_posture/2" do
+    test "capture off disables retention without removing spans" do
+      span = Span.new("operation")
+
+      trace =
+        "trace_123"
+        |> Trace.new()
+        |> Trace.add_span(span)
+        |> Trace.with_persistence_posture(persistence_profile: :off)
+
+      assert trace.spans == [span]
+      assert trace.persistence_posture.retained? == false
+      assert trace.persistence_posture.store_set_ref == "store-set://off"
     end
   end
 

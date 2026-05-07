@@ -70,6 +70,11 @@ defmodule AITrace.Exporter.FileTest do
       assert data["trace_id"] == "test_trace_123"
       assert data["exporter_schema_version"] == "aitrace.file_export.v1"
       assert data["release_manifest_ref"] == "release:phase5-v7-m5"
+
+      assert data["trace_persistence_posture"]["capture_level_ref"] ==
+               "capture-level://redacted-memory-ring"
+
+      assert data["export_persistence_posture"]["raw_payload_persistence?"] == false
       assert is_binary(data["created_at_wall_time"])
       assert data["clock_domain"]["monotonic_unit"] == "microsecond"
       assert is_list(data["spans"])
@@ -107,6 +112,10 @@ defmodule AITrace.Exporter.FileTest do
       assert evidence["hash_algorithm"] == "sha256"
       assert evidence["release_manifest_ref"] == "release:phase5-v7-m5"
       assert evidence["evidence_owner_ref"] == "evidence-owner:trace-file"
+      assert evidence["trace_persistence_posture"]["raw_payload_persistence?"] == false
+
+      assert evidence["export_persistence_posture"]["capture_level_ref"] ==
+               "capture-level://redacted-memory-ring"
 
       assert evidence["proof_posture"]["authoritative_evidence?"] == true
       assert evidence["proof_posture"]["release_manifest_linked?"] == true
@@ -210,6 +219,7 @@ defmodule AITrace.Exporter.FileTest do
 
       span_data = hd(data["spans"])
       assert span_data["name"] == "my_operation"
+      assert span_data["persistence_posture"]["raw_payload_persistence?"] == false
       assert span_data["attributes"]["user_id"] == 42
       assert is_integer(span_data["start_time"])
       assert is_integer(span_data["end_time"])
@@ -241,6 +251,10 @@ defmodule AITrace.Exporter.FileTest do
 
       event_data = hd(span_data["events"])
       assert event_data["name"] == "cache_miss"
+
+      assert event_data["persistence_posture"]["capture_level_ref"] ==
+               "capture-level://redacted-memory-ring"
+
       assert event_data["attributes"]["key"] == "user_123"
     end
 

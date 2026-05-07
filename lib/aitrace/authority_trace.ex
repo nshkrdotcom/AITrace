@@ -8,6 +8,8 @@ defmodule AITrace.AuthorityTrace do
   headers.
   """
 
+  alias AITrace.PersistencePosture
+
   @required_refs [
     :event_name,
     :authority_packet_ref,
@@ -91,8 +93,10 @@ defmodule AITrace.AuthorityTrace do
                     :redaction_class,
                     :provider_account_status,
                     :provider_account_evidence_ref,
-                    :identity_introspection_limit
+                    :identity_introspection_limit,
+                    :persistence_posture
                   ]
+  @known_event_fields @event_fields ++ [:persistence_profile, :persistence_profile_ref]
   @overflow_safe_action "drop_raw_material_keep_ref"
 
   @enforce_keys @required_refs
@@ -107,6 +111,7 @@ defmodule AITrace.AuthorityTrace do
                 provider_account_status: :unknown,
                 provider_account_evidence_ref: nil,
                 identity_introspection_limit: :ref_only,
+                persistence_posture: PersistencePosture.memory_ring(:authority_trace),
                 raw_material_present?: false,
                 overflow_safe_action: @overflow_safe_action,
                 contract_version: "AITrace.AuthorityTraceEvent.v1"
@@ -132,6 +137,7 @@ defmodule AITrace.AuthorityTrace do
           provider_account_status: atom(),
           provider_account_evidence_ref: String.t() | nil,
           identity_introspection_limit: atom(),
+          persistence_posture: PersistencePosture.t(),
           raw_material_present?: false,
           overflow_safe_action: String.t(),
           contract_version: String.t()
@@ -242,6 +248,7 @@ defmodule AITrace.AuthorityTrace do
       |> Map.put(:proof_refs, List.wrap(Map.get(attrs, :proof_refs, [])))
       |> Map.put(:scanner_refs, List.wrap(Map.get(attrs, :scanner_refs, [])))
       |> Map.put(:redaction_class, redaction_class)
+      |> Map.put(:persistence_posture, PersistencePosture.resolve(:authority_trace, attrs))
       |> Map.put(:raw_material_present?, false)
       |> Map.put(:overflow_safe_action, @overflow_safe_action)
       |> Map.put(:contract_version, "AITrace.AuthorityTraceEvent.v1")
@@ -300,7 +307,7 @@ defmodule AITrace.AuthorityTrace do
   defp normalize_key(key) when is_atom(key), do: key
 
   defp normalize_key(key) when is_binary(key) do
-    Enum.find(@event_fields ++ @forbidden_material, key, fn candidate ->
+    Enum.find(@known_event_fields ++ @forbidden_material, key, fn candidate ->
       Atom.to_string(candidate) == key
     end)
   end

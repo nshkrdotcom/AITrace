@@ -3,6 +3,8 @@ defmodule AITrace.Trace.ReplayBundle do
   Root AITrace replay bundle artifact for file exports.
   """
 
+  alias AITrace.PersistencePosture
+
   @enforce_keys [
     :bundle_ref,
     :source_trace_ref,
@@ -12,7 +14,7 @@ defmodule AITrace.Trace.ReplayBundle do
     :redaction_policy_ref,
     :release_manifest_ref
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [persistence_posture: PersistencePosture.memory_ring(:replay)]
 
   @type t :: %__MODULE__{
           bundle_ref: String.t(),
@@ -21,7 +23,8 @@ defmodule AITrace.Trace.ReplayBundle do
           divergence_list_ref: String.t(),
           audit_ref: String.t(),
           redaction_policy_ref: String.t(),
-          release_manifest_ref: String.t()
+          release_manifest_ref: String.t(),
+          persistence_posture: PersistencePosture.t()
         }
 
   @raw_keys [
@@ -67,7 +70,8 @@ defmodule AITrace.Trace.ReplayBundle do
          divergence_list_ref: fetch!(attrs, :divergence_list_ref),
          audit_ref: fetch!(attrs, :audit_ref),
          redaction_policy_ref: fetch!(attrs, :redaction_policy_ref),
-         release_manifest_ref: fetch!(attrs, :release_manifest_ref)
+         release_manifest_ref: fetch!(attrs, :release_manifest_ref),
+         persistence_posture: PersistencePosture.resolve(:replay, attrs)
        }}
     end
   end

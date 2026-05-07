@@ -13,7 +13,20 @@ defmodule AITrace.AuthorityTraceTest do
     assert event.redaction_policy_ref == "redaction-policy://tenant-1/authority"
     assert event.provider_account_status == :asserted
     assert event.identity_introspection_limit == :ref_only
+    assert event.persistence_posture.capture_level_ref == "capture-level://redacted-memory-ring"
+    assert event.persistence_posture.raw_payload_persistence? == false
     assert event.raw_material_present? == false
+  end
+
+  test "authority trace capture off preserves event refs" do
+    assert {:ok, event} =
+             valid_attrs()
+             |> Map.put(:persistence_profile, :off)
+             |> AuthorityTrace.event()
+
+    assert event.event_name == "authority.provider_dispatch"
+    assert event.persistence_posture.retained? == false
+    assert event.persistence_posture.store_set_ref == "store-set://off"
   end
 
   test "rejects missing refs before trace export" do

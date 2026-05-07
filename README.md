@@ -168,6 +168,10 @@ config :aitrace,
     `AITrace.ExportBounds`; raw prompt/provider/webhook/payload-shaped fields
     and oversize values are replaced with SHA-256 spillover refs instead of
     being serialized inline.
+  - Phase 7 capture posture defaults to a redacted memory/ref-only evidence
+    profile. `:off` capture disables trace retention without blocking provider
+    effects, and debug tap failure records `:failed_non_mutating` evidence
+    without mutating trace, span, event, export, or replay-bundle state.
 
 ### Creating Custom Exporters
 

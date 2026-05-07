@@ -66,6 +66,16 @@ defmodule AITrace.SpanTest do
 
       assert span.status == :ok
     end
+
+    test "defaults to redacted memory-ring persistence posture" do
+      span = Span.new("test")
+
+      assert span.persistence_posture.persistence_profile_ref ==
+               "persistence-profile://mickey-mouse"
+
+      assert span.persistence_posture.capture_level_ref == "capture-level://redacted-memory-ring"
+      assert span.persistence_posture.raw_payload_persistence? == false
+    end
   end
 
   describe "new/3 with parent_span_id" do
@@ -129,6 +139,20 @@ defmodule AITrace.SpanTest do
       new_span = Span.with_attributes(span, %{a: 2})
 
       assert new_span.attributes == %{a: 2}
+    end
+  end
+
+  describe "with_persistence_posture/2" do
+    test "capture off disables span retention without mutating attributes" do
+      span =
+        "test"
+        |> Span.new()
+        |> Span.with_attributes(%{safe_ref: "trace://safe"})
+        |> Span.with_persistence_posture(persistence_profile: :off)
+
+      assert span.attributes == %{safe_ref: "trace://safe"}
+      assert span.persistence_posture.retained? == false
+      assert span.persistence_posture.store_set_ref == "store-set://off"
     end
   end
 

@@ -10,7 +10,7 @@ defmodule AITrace.Span do
   - Status (ok, error)
   """
 
-  alias AITrace.{Clock, Event, Identifier}
+  alias AITrace.{Clock, Event, Identifier, PersistencePosture}
 
   @type status :: :ok | :error
 
@@ -25,6 +25,7 @@ defmodule AITrace.Span do
           end_time: integer() | nil,
           end_wall_time: DateTime.t() | nil,
           clock_domain: map(),
+          persistence_posture: PersistencePosture.t(),
           attributes: map(),
           events: list(Event.t()),
           status: status()
@@ -41,6 +42,7 @@ defmodule AITrace.Span do
     :end_time,
     :end_wall_time,
     :clock_domain,
+    :persistence_posture,
     attributes: %{},
     events: [],
     status: :ok
@@ -72,6 +74,7 @@ defmodule AITrace.Span do
       end_time: nil,
       end_wall_time: nil,
       clock_domain: Clock.clock_domain(),
+      persistence_posture: PersistencePosture.memory_ring(:span),
       attributes: %{},
       events: [],
       status: :ok
@@ -102,6 +105,7 @@ defmodule AITrace.Span do
       end_time: nil,
       end_wall_time: nil,
       clock_domain: Clock.clock_domain(),
+      persistence_posture: PersistencePosture.memory_ring(:span),
       attributes: %{},
       events: [],
       status: :ok
@@ -136,6 +140,14 @@ defmodule AITrace.Span do
   @spec with_attributes(t(), map()) :: t()
   def with_attributes(%__MODULE__{} = span, attributes) when is_map(attributes) do
     %{span | attributes: Map.merge(span.attributes, attributes)}
+  end
+
+  @doc """
+  Sets the capture/persistence posture for the span.
+  """
+  @spec with_persistence_posture(t(), map() | keyword()) :: t()
+  def with_persistence_posture(%__MODULE__{} = span, attrs) do
+    %{span | persistence_posture: PersistencePosture.resolve(:span, attrs)}
   end
 
   @doc """

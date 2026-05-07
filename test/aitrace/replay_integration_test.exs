@@ -54,9 +54,12 @@ defmodule AITrace.ReplayIntegrationTest do
                release_manifest_ref: "release://phase-c"
              })
 
+    assert bundle.persistence_posture.capture_level_ref == "capture-level://redacted-memory-ring"
+
     assert {:ok, receipt} = FileExporter.export_replay_bundle(bundle, state)
 
     assert receipt.source_trace_ref == "trace://source"
+    assert receipt.replay_persistence_posture["raw_payload_persistence?"] == false
     assert String.ends_with?(receipt.replay_bundle_artifact_ref, ".json")
 
     assert File.exists?(

@@ -36,7 +36,7 @@ defmodule AITrace.Exporter.File do
 
   @behaviour AITrace.Exporter
 
-  alias AITrace.{Clock, Event, ExportBounds, Span, Trace}
+  alias AITrace.{Clock, Event, ExportBounds, PersistencePosture, Span, Trace}
   alias AITrace.Trace.ReplayBundle
 
   @schema_version "aitrace.file_export.v1"
@@ -69,7 +69,8 @@ defmodule AITrace.Exporter.File do
       source_node_ref: node_evidence[:source_node_ref],
       node_evidence: node_evidence,
       commit_lsn: get_opt(opts, :commit_lsn),
-      commit_hlc: normalize_commit_hlc(get_opt(opts, :commit_hlc))
+      commit_hlc: normalize_commit_hlc(get_opt(opts, :commit_hlc)),
+      persistence_posture: PersistencePosture.resolve(:export, opts)
     }
 
     {:ok, state}
@@ -114,6 +115,10 @@ defmodule AITrace.Exporter.File do
       %{
         exporter_schema_version: @schema_version,
         export_bounds: ExportBounds.profile(),
+        export_persistence_posture:
+          PersistencePosture.export_attributes(state.persistence_posture),
+        trace_persistence_posture:
+          PersistencePosture.export_attributes(trace.persistence_posture),
         replay_addressable?: trace.replay_addressable?,
         release_manifest_ref: state.release_manifest_ref,
         exported_at_wall_time: exported_at_wall_time,
@@ -185,7 +190,11 @@ defmodule AITrace.Exporter.File do
         replay_trace_ref: bundle.replay_trace_ref,
         divergence_list_ref: bundle.divergence_list_ref,
         audit_ref: bundle.audit_ref,
-        redaction_policy_ref: bundle.redaction_policy_ref
+        redaction_policy_ref: bundle.redaction_policy_ref,
+        replay_persistence_posture:
+          PersistencePosture.export_attributes(bundle.persistence_posture),
+        export_persistence_posture:
+          PersistencePosture.export_attributes(state.persistence_posture)
       }
       |> maybe_put_node_evidence(state.node_evidence)
 
@@ -208,6 +217,10 @@ defmodule AITrace.Exporter.File do
         source_trace_ref: bundle.source_trace_ref,
         replay_trace_ref: bundle.replay_trace_ref,
         release_manifest_ref: state.release_manifest_ref || bundle.release_manifest_ref,
+        replay_persistence_posture:
+          PersistencePosture.export_attributes(bundle.persistence_posture),
+        export_persistence_posture:
+          PersistencePosture.export_attributes(state.persistence_posture),
         exported_at_wall_time: exported_at_wall_time,
         proof_posture: proof_posture(state)
       }
@@ -287,6 +300,8 @@ defmodule AITrace.Exporter.File do
       hash_algorithm: "sha256",
       release_manifest_ref: state.release_manifest_ref,
       evidence_owner_ref: state.evidence_owner_ref,
+      trace_persistence_posture: PersistencePosture.export_attributes(trace.persistence_posture),
+      export_persistence_posture: PersistencePosture.export_attributes(state.persistence_posture),
       exported_at_wall_time: exported_at_wall_time,
       proof_posture: proof_posture(state)
     }
@@ -352,6 +367,7 @@ defmodule AITrace.Exporter.File do
       end_wall_time: Clock.wall_time_iso8601(span.end_wall_time),
       duration_microseconds: Span.duration(span),
       clock_domain: span.clock_domain,
+      persistence_posture: PersistencePosture.export_attributes(span.persistence_posture),
       attributes: ExportBounds.bound_map!(span.attributes, surface: :span_attributes),
       events: Enum.map(span.events, &encode_event/1),
       status: span.status
@@ -365,6 +381,7 @@ defmodule AITrace.Exporter.File do
       timestamp: event.timestamp,
       wall_time: Clock.wall_time_iso8601(event.wall_time),
       clock_domain: event.clock_domain,
+      persistence_posture: PersistencePosture.export_attributes(event.persistence_posture),
       attributes: ExportBounds.bound_map!(event.attributes, surface: :event_attributes)
     }
   end

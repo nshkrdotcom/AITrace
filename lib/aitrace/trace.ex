@@ -9,7 +9,7 @@ defmodule AITrace.Trace do
   - Creation timestamp
   """
 
-  alias AITrace.{Clock, Identifier, Span}
+  alias AITrace.{Clock, Identifier, PersistencePosture, Span}
 
   @type t :: %__MODULE__{
           trace_id: String.t(),
@@ -19,6 +19,7 @@ defmodule AITrace.Trace do
           created_at: integer(),
           created_at_wall_time: DateTime.t(),
           clock_domain: map(),
+          persistence_posture: PersistencePosture.t(),
           replay_addressable?: boolean()
         }
 
@@ -28,6 +29,7 @@ defmodule AITrace.Trace do
     :created_at,
     :created_at_wall_time,
     :clock_domain,
+    :persistence_posture,
     replay_addressable?: true,
     spans: [],
     metadata: %{}
@@ -56,6 +58,7 @@ defmodule AITrace.Trace do
       created_at: Clock.monotonic_time(),
       created_at_wall_time: Clock.wall_time(),
       clock_domain: Clock.clock_domain(),
+      persistence_posture: PersistencePosture.resolve(:trace, opts),
       replay_addressable?: true
     }
   end
@@ -122,6 +125,14 @@ defmodule AITrace.Trace do
   """
   @spec replay_addressable?(t()) :: boolean()
   def replay_addressable?(%__MODULE__{} = trace), do: trace.replay_addressable?
+
+  @doc """
+  Sets the capture/persistence posture for the trace.
+  """
+  @spec with_persistence_posture(t(), map() | keyword()) :: t()
+  def with_persistence_posture(%__MODULE__{} = trace, attrs) do
+    %{trace | persistence_posture: PersistencePosture.resolve(:trace, attrs)}
+  end
 
   @doc """
   Returns all root spans (spans with no parent).

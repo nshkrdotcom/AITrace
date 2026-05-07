@@ -13,6 +13,10 @@ defmodule AITrace.SingleNodeProofTraceTest do
     assert Enum.map(fixture["spans"], & &1["name"]) == SingleNodeProofTrace.required_spans()
     assert fixture["proof_posture"]["authoritative_audit?"] == false
     assert fixture["proof_posture"]["production_deployment_proven?"] == false
+
+    assert fixture["proof_posture"]["persistence_posture"]["capture_level_ref"] ==
+             "capture-level://redacted-memory-ring"
+
     assert :ok = SingleNodeProofTrace.validate(fixture)
   end
 

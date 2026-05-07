@@ -40,4 +40,18 @@ defmodule AITrace.ExportBoundsTest do
     refute Map.has_key?(bounded, "guard_violation_payload")
     assert bounded["_aitrace_export_overflow"]["count"] == 3
   end
+
+  test "capture profiles keep raw payload persistence disabled" do
+    assert ExportBounds.capture_profile(:off) == %{
+             capture_level_ref: "capture-level://off",
+             retained?: false,
+             raw_payload_persistence?: false,
+             overflow_safe_action: "drop_without_mutating_provider_effect"
+           }
+
+    assert ExportBounds.capture_profile(:memory_ring).raw_payload_persistence? == false
+
+    assert ExportBounds.capture_profile(:redacted_debug).capture_level_ref ==
+             "capture-level://redacted-debug"
+  end
 end
