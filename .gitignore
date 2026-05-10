@@ -21,3 +21,10 @@ aitrace-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+.dependency_sources.local.exs
+core/*/.dependency_sources.local.exs
+core/*/_build/
+core/*/deps/
+core/*/doc/
+core/*/*.tar

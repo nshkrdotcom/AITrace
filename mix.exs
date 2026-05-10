@@ -1,3 +1,7 @@
+unless Code.ensure_loaded?(DependencySources) do
+  Code.require_file("build_support/dependency_sources.exs", __DIR__)
+end
+
 defmodule AITrace.MixProject do
   use Mix.Project
 
@@ -77,7 +81,7 @@ defmodule AITrace.MixProject do
     [
       name: "aitrace",
       description: description(),
-      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE assets),
+      files: ~w(lib build_support mix.exs README.md CHANGELOG.md LICENSE assets AGENTS.md),
       licenses: ["MIT"],
       links: %{
         "GitHub" => @source_url,
