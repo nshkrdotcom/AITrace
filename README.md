@@ -88,6 +88,31 @@ flowchart LR
   Redaction --> StackProof["StackLab<br/>proof joins"]
 ```
 
+## Developer Flow Diagrams
+
+```mermaid
+flowchart TD
+  API["Trace<br/>API"] --> Context["Trace<br/>context"]
+  Context --> Collector["Collector"]
+  Collector --> Spans["Spans"]
+  Collector --> Events["Events"]
+  Spans --> Bounds["Export<br/>bounds"]
+  Events --> Bounds
+  Bounds --> Exporter["Explicit<br/>exporter"]
+  Exporter --> Receipt["Export<br/>receipt"]
+```
+
+```mermaid
+flowchart LR
+  TraceRef["Trace<br/>refs"] --> Bundle["Replay<br/>bundle"]
+  Bundle --> Engine["Replay<br/>engine"]
+  Engine --> Redaction["Redaction<br/>manifest"]
+  Engine --> Proof["Proof<br/>join"]
+  Proof --> StackLab["StackLab"]
+  Proof --> Authority["Authority<br/>owner"]
+  Proof --> Audit["Audit<br/>owner"]
+```
+
 ## The Problem: Why Traditional Observability Fails
 
 Debugging a simple web request is a solved problem. We have structured logs, metrics, and distributed tracing (like OpenTelemetry) that show the path of a request through a series of stateless services.
