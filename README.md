@@ -67,25 +67,25 @@ silently selected by process configuration.
 
 ```mermaid
 flowchart TD
-  Operation["Instrumented operation"] --> Trace["Trace"]
-  Trace --> Span["Nested spans"]
-  Span --> Event["Point-in-time events"]
-  Event --> Attr["Bounded attributes"]
-  Attr --> Export["Explicit exporter"]
-  Export --> Receipt["Export receipt"]
-  Receipt --> Owner["Authority, audit, or proof owner"]
+  Operation["Instrumented<br/>operation"] --> Trace["Trace"]
+  Trace --> Span["Nested<br/>spans"]
+  Span --> Event["Point<br/>events"]
+  Event --> Attr["Bounded<br/>attributes"]
+  Attr --> Export["Explicit<br/>exporter"]
+  Export --> Receipt["Export<br/>receipt"]
+  Receipt --> Owner["Evidence<br/>owner"]
 ```
 
 ```mermaid
 flowchart LR
-  Prompt["Prompt evidence"] --> Bounds["AI platform trace bounds"]
-  Guard["Guard evidence"] --> Bounds
-  Replay["Replay evidence"] --> Bounds
-  Eval["Eval evidence"] --> Bounds
-  Cost["Cost evidence"] --> Bounds
-  Provider["Provider identity evidence"] --> Bounds
-  Bounds --> Redaction["Redaction and spillover refs"]
-  Redaction --> StackProof["StackLab proof joins"]
+  Prompt["Prompt<br/>evidence"] --> Bounds["Trace<br/>bounds"]
+  Guard["Guard<br/>evidence"] --> Bounds
+  Replay["Replay<br/>evidence"] --> Bounds
+  Eval["Eval<br/>evidence"] --> Bounds
+  Cost["Cost<br/>evidence"] --> Bounds
+  Provider["Provider<br/>identity"] --> Bounds
+  Bounds --> Redaction["Redaction<br/>refs"]
+  Redaction --> StackProof["StackLab<br/>proof joins"]
 ```
 
 ## The Problem: Why Traditional Observability Fails
