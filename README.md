@@ -1,8 +1,17 @@
-# AITrace
+<p align="center">
+  <img src="assets/ai_trace.svg" width="200" height="200" alt="AITrace logo" />
+</p>
 
 <p align="center">
-  <img src="assets/ai_trace.svg" alt="AITrace logo" width="220" />
+  <a href="https://github.com/nshkrdotcom/AITrace">
+    <img alt="GitHub: AITrace" src="https://img.shields.io/badge/GitHub-AITrace-0b0f14?logo=github" />
+  </a>
+  <a href="https://github.com/nshkrdotcom/AITrace/blob/main/LICENSE">
+    <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0b0f14.svg" />
+  </a>
 </p>
+
+# AITrace
 
 > The unified observability layer for the AI Control Plane.
 
@@ -53,6 +62,31 @@ but it now also carries stack-oriented evidence contracts:
 Use ambient application config only for standalone tracing. Governed callers
 must pass explicit exporters and refs at the call site so export sinks are not
 silently selected by process configuration.
+
+## Trace Diagrams
+
+```mermaid
+flowchart TD
+  Operation["Instrumented operation"] --> Trace["Trace"]
+  Trace --> Span["Nested spans"]
+  Span --> Event["Point-in-time events"]
+  Event --> Attr["Bounded attributes"]
+  Attr --> Export["Explicit exporter"]
+  Export --> Receipt["Export receipt"]
+  Receipt --> Owner["Authority, audit, or proof owner"]
+```
+
+```mermaid
+flowchart LR
+  Prompt["Prompt evidence"] --> Bounds["AI platform trace bounds"]
+  Guard["Guard evidence"] --> Bounds
+  Replay["Replay evidence"] --> Bounds
+  Eval["Eval evidence"] --> Bounds
+  Cost["Cost evidence"] --> Bounds
+  Provider["Provider identity evidence"] --> Bounds
+  Bounds --> Redaction["Redaction and spillover refs"]
+  Redaction --> StackProof["StackLab proof joins"]
+```
 
 ## The Problem: Why Traditional Observability Fails
 
