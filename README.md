@@ -14,6 +14,46 @@ Standalone tracing may use the `:aitrace, :exporters` application config.
 Governed callers must pass explicit exporters to `AITrace.export/2`; ambient
 application env must not select trace export sinks for governed evidence.
 
+## Stack Position
+
+AITrace is an evidence and observability library, not the authority layer. In
+the ranked stack it provides trace refs, spans, events, replay bundles, export
+receipts, and execution-cinema data that other owners can join to their own
+truth:
+
+```text
+products, AppKit, Mezzanine, Citadel, Jido Integration, StackLab
+  -> AITrace spans/events/export receipts
+      -> Mezzanine owns durable audit truth
+      -> Citadel owns authority truth
+      -> StackLab owns assembled proof joins
+```
+
+This distinction matters. A trace can prove what was observed by an
+instrumented path. It does not by itself prove that the path was authorized,
+that a workflow reached durable terminal truth, or that a release claim is
+closed. Those claims need the owning authority, audit, and proof repos to link
+AITrace refs into their receipts.
+
+## Current Platform Role
+
+The current package still supports the simple local tracing API shown below,
+but it now also carries stack-oriented evidence contracts:
+
+- bounded export behavior that redacts raw prompt, provider, webhook, payload,
+  and oversize fields into hash-backed spillover refs
+- file-export receipts that can carry release-manifest or evidence-owner refs
+- authority-trace classification helpers
+- AI platform trace bounds for prompt, guard, replay, eval, cost, and provider
+  identity evidence
+- replay contracts and replay engine packages under `core/`
+- single-node proof trace fixtures used by StackLab
+- persistence posture documentation for redacted memory/ref-only capture
+
+Use ambient application config only for standalone tracing. Governed callers
+must pass explicit exporters and refs at the call site so export sinks are not
+silently selected by process configuration.
+
 ## The Problem: Why Traditional Observability Fails
 
 Debugging a simple web request is a solved problem. We have structured logs, metrics, and distributed tracing (like OpenTelemetry) that show the path of a request through a series of stateless services.
