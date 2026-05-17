@@ -26,6 +26,38 @@ defmodule AITrace.ReplayContracts do
   @remediation_classes [:none, :review, :rollback_prompt, :update_fixture, :operator_decision]
   @decision_classes [:clean, :diverged, :denied, :inconclusive]
   @cost_classes [:replay]
+  @lineage_event_kinds [
+    :semantic_intent,
+    :semantic_normalized,
+    :command_recorded,
+    :authority_compiled,
+    :workflow_started,
+    :operation_requested,
+    :jido_manifest_resolved,
+    :credential_lease_materialized,
+    :effect_requested,
+    :effect_receipted,
+    :receipt_reduced,
+    :evidence_attached,
+    :review_opened,
+    :review_skipped,
+    :projection_updated,
+    :replay_exported,
+    :retry_scheduled,
+    :operation_failed,
+    :operation_canceled
+  ]
+  @trace_levels [:core_lineage, :detailed_proof, :replay_minimum]
+  @merge_semantics [
+    :diagnostic,
+    :set_union,
+    :map_merge_by_key,
+    :max,
+    :min,
+    :last_write_by_causal_order,
+    :append_by_projection_order,
+    :state_transition
+  ]
 
   @request_required [
     :tenant_ref,
@@ -59,6 +91,15 @@ defmodule AITrace.ReplayContracts do
     :remediation_class,
     :source_span_ref,
     :replay_span_ref
+  ]
+  @lineage_event_required [
+    :event_ref,
+    :trace_ref,
+    :event_kind,
+    :occurred_at,
+    :causal_order,
+    :merge_semantics,
+    :trace_level
   ]
   @raw_payload_keys [
     :body,
@@ -182,6 +223,42 @@ defmodule AITrace.ReplayContracts do
           }
   end
 
+  defmodule LineageReplayEvent do
+    @moduledoc "Ref-only execution lineage event used for causal replay proofs."
+    @enforce_keys [
+      :event_ref,
+      :trace_ref,
+      :event_kind,
+      :occurred_at,
+      :predecessor_event_refs,
+      :root_event?,
+      :projection_key,
+      :projection_visible?,
+      :projection_order_key,
+      :causal_order,
+      :merge_semantics,
+      :trace_level,
+      :metadata_refs
+    ]
+    defstruct @enforce_keys
+
+    @type t :: %__MODULE__{
+            event_ref: String.t(),
+            trace_ref: String.t(),
+            event_kind: atom(),
+            occurred_at: integer(),
+            predecessor_event_refs: [String.t()],
+            root_event?: boolean(),
+            projection_key: String.t() | nil,
+            projection_visible?: boolean(),
+            projection_order_key: String.t(),
+            causal_order: integer(),
+            merge_semantics: atom(),
+            trace_level: atom(),
+            metadata_refs: map()
+          }
+  end
+
   @spec replay_modes() :: [atom()]
   def replay_modes, do: @replay_modes
 
@@ -190,6 +267,15 @@ defmodule AITrace.ReplayContracts do
 
   @spec divergence_phases() :: [atom()]
   def divergence_phases, do: @divergence_phases
+
+  @spec lineage_event_kinds() :: [atom()]
+  def lineage_event_kinds, do: @lineage_event_kinds
+
+  @spec trace_levels() :: [atom()]
+  def trace_levels, do: @trace_levels
+
+  @spec merge_semantics() :: [atom()]
+  def merge_semantics, do: @merge_semantics
 
   @spec replay_request(map()) :: {:ok, ReplayRequest.t()} | {:error, term()}
   def replay_request(attrs) when is_map(attrs) do
@@ -273,6 +359,69 @@ defmodule AITrace.ReplayContracts do
 
   def replay_bundle(_attrs), do: {:error, :invalid_replay_bundle}
 
+  @spec lineage_replay_event(map() | LineageReplayEvent.t()) ::
+          {:ok, LineageReplayEvent.t()} | {:error, term()}
+  def lineage_replay_event(%LineageReplayEvent{} = event), do: {:ok, event}
+
+  def lineage_replay_event(attrs) when is_map(attrs) do
+    with :ok <- reject_raw_payload(attrs),
+         :ok <-
+           required_strings(
+             attrs,
+             @lineage_event_required --
+               [:event_kind, :occurred_at, :causal_order, :merge_semantics, :trace_level]
+           ),
+         {:ok, event_kind} <- member(attrs, :event_kind, @lineage_event_kinds),
+         {:ok, merge_semantics} <- member(attrs, :merge_semantics, @merge_semantics),
+         {:ok, trace_level} <- member(attrs, :trace_level, @trace_levels),
+         {:ok, occurred_at} <- integer_field(attrs, :occurred_at),
+         {:ok, causal_order} <- integer_field(attrs, :causal_order),
+         {:ok, predecessor_event_refs} <- string_list_field(attrs, :predecessor_event_refs, []),
+         {:ok, root_event?} <- boolean_field(attrs, :root_event?, false),
+         {:ok, projection_visible?} <- boolean_field(attrs, :projection_visible?, false),
+         {:ok, projection_key} <- projection_key(attrs, projection_visible?),
+         {:ok, projection_order_key} <-
+           optional_string(attrs, :projection_order_key, fetch!(attrs, :event_ref)),
+         {:ok, metadata_refs} <- map_field(attrs, :metadata_refs, %{}),
+         :ok <- predecessor_contract(root_event?, predecessor_event_refs) do
+      {:ok,
+       %LineageReplayEvent{
+         event_ref: fetch!(attrs, :event_ref),
+         trace_ref: fetch!(attrs, :trace_ref),
+         event_kind: event_kind,
+         occurred_at: occurred_at,
+         predecessor_event_refs: predecessor_event_refs,
+         root_event?: root_event?,
+         projection_key: projection_key,
+         projection_visible?: projection_visible?,
+         projection_order_key: projection_order_key,
+         causal_order: causal_order,
+         merge_semantics: merge_semantics,
+         trace_level: trace_level,
+         metadata_refs: metadata_refs
+       }}
+    end
+  end
+
+  def lineage_replay_event(_attrs), do: {:error, :invalid_lineage_replay_event}
+
+  @spec lineage_replay_events([map() | LineageReplayEvent.t()]) ::
+          {:ok, [LineageReplayEvent.t()]} | {:error, term()}
+  def lineage_replay_events(events) when is_list(events) do
+    Enum.reduce_while(events, {:ok, []}, fn attrs, {:ok, acc} ->
+      case lineage_replay_event(attrs) do
+        {:ok, event} -> {:cont, {:ok, [event | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
+      error -> error
+    end
+  end
+
+  def lineage_replay_events(_events), do: {:error, :invalid_lineage_replay_events}
+
   defp reject_raw_payload(attrs) do
     case Enum.find(@raw_payload_keys, &Map.has_key?(attrs, &1)) do
       nil -> :ok
@@ -321,6 +470,56 @@ defmodule AITrace.ReplayContracts do
       _value -> {:error, {:invalid_replay_field, field}}
     end
   end
+
+  defp integer_field(attrs, field) do
+    case fetch(attrs, field) do
+      value when is_integer(value) -> {:ok, value}
+      _value -> {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp boolean_field(attrs, field, default) do
+    case fetch(attrs, field, default) do
+      value when is_boolean(value) -> {:ok, value}
+      _value -> {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp optional_string(attrs, field, default) do
+    case fetch(attrs, field, default) do
+      nil ->
+        {:error, {:missing_replay_ref, field}}
+
+      value when is_binary(value) ->
+        if present_string?(value) do
+          {:ok, value}
+        else
+          {:error, {:missing_replay_ref, field}}
+        end
+
+      _value ->
+        {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp projection_key(attrs, false) do
+    case fetch(attrs, :projection_key) do
+      nil -> {:ok, nil}
+      value when is_binary(value) -> optional_string(attrs, :projection_key, value)
+      _value -> {:error, {:invalid_replay_field, :projection_key}}
+    end
+  end
+
+  defp projection_key(attrs, true), do: optional_string(attrs, :projection_key, nil)
+
+  defp predecessor_contract(true, []), do: :ok
+  defp predecessor_contract(false, [_predecessor | _rest]), do: :ok
+
+  defp predecessor_contract(true, _predecessors),
+    do: {:error, {:invalid_replay_field, :root_event?}}
+
+  defp predecessor_contract(false, []),
+    do: {:error, {:missing_replay_ref, :predecessor_event_refs}}
 
   defp string_list_field(attrs, field, default) do
     values = fetch(attrs, field, default)

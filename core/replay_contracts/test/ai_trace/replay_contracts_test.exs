@@ -65,6 +65,31 @@ defmodule AITrace.ReplayContractsTest do
              |> ReplayContracts.replay_bundle()
   end
 
+  test "lineage replay events are ref-only and bounded by trace level" do
+    assert {:ok, event} = ReplayContracts.lineage_replay_event(lineage_event_attrs())
+
+    assert event.event_kind == :effect_receipted
+    assert event.trace_level == :detailed_proof
+    assert event.predecessor_event_refs == ["lineage://source"]
+    assert event.projection_visible? == true
+
+    assert {:error, {:invalid_replay_field, :trace_level}} =
+             lineage_event_attrs()
+             |> Map.put(:trace_level, :verbose_dump)
+             |> ReplayContracts.lineage_replay_event()
+
+    assert {:error, {:missing_replay_ref, :projection_key}} =
+             lineage_event_attrs()
+             |> Map.put(:projection_visible?, true)
+             |> Map.delete(:projection_key)
+             |> ReplayContracts.lineage_replay_event()
+
+    assert {:error, {:raw_replay_payload_forbidden, :payload}} =
+             lineage_event_attrs()
+             |> Map.put(:payload, "raw lower response")
+             |> ReplayContracts.lineage_replay_event()
+  end
+
   defp request_attrs do
     %{
       tenant_ref: "tenant://a",
@@ -91,6 +116,23 @@ defmodule AITrace.ReplayContractsTest do
       remediation_class: :operator_decision,
       source_span_ref: "span://source/1",
       replay_span_ref: "span://replay/1"
+    }
+  end
+
+  defp lineage_event_attrs do
+    %{
+      event_ref: "lineage://receipt",
+      trace_ref: "trace://lineage",
+      event_kind: :effect_receipted,
+      occurred_at: 3,
+      predecessor_event_refs: ["lineage://source"],
+      projection_key: "projection://document-review/evidence",
+      projection_visible?: true,
+      projection_order_key: "document-review:020",
+      causal_order: 20,
+      merge_semantics: :set_union,
+      trace_level: :detailed_proof,
+      metadata_refs: %{receipt_ref: "receipt://effect"}
     }
   end
 end

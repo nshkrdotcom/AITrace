@@ -58,6 +58,113 @@ defmodule AITrace.ReplayEngineTest do
     assert String.contains?(excerpt_class, "aitrace.redaction.replay.variant_override.v1")
   end
 
+  test "lineage replay compares emit order and causal order without projection drift" do
+    events = [
+      lineage_event("lineage://command", :command_recorded, 10,
+        root_event?: true,
+        projection_visible?: false
+      ),
+      lineage_event("lineage://evidence-b", :effect_receipted, 30,
+        predecessor_event_refs: ["lineage://command"],
+        projection_key: "projection://document-review/evidence",
+        projection_order_key: "document-review:030"
+      ),
+      lineage_event("lineage://evidence-a", :effect_receipted, 20,
+        predecessor_event_refs: ["lineage://command"],
+        projection_key: "projection://document-review/evidence",
+        projection_order_key: "document-review:020"
+      ),
+      lineage_event("lineage://projection", :projection_updated, 40,
+        predecessor_event_refs: ["lineage://evidence-a", "lineage://evidence-b"],
+        projection_key: "projection://document-review/status",
+        merge_semantics: :last_write_by_causal_order,
+        projection_order_key: "document-review:040"
+      )
+    ]
+
+    assert {:ok, report} =
+             ReplayEngine.replay_lineage_events(events,
+               required_event_kinds: [:command_recorded, :effect_receipted, :projection_updated]
+             )
+
+    assert report.emit_order_event_refs == [
+             "lineage://command",
+             "lineage://evidence-b",
+             "lineage://evidence-a",
+             "lineage://projection"
+           ]
+
+    assert report.causal_order_event_refs == [
+             "lineage://command",
+             "lineage://evidence-a",
+             "lineage://evidence-b",
+             "lineage://projection"
+           ]
+
+    assert report.order_diverged? == true
+    assert report.projection_diverged? == false
+    assert report.divergences == []
+
+    assert report.projection_outputs.emit_order == report.projection_outputs.causal_order
+
+    assert report.projection_outputs.causal_order["projection://document-review/evidence"] == %{
+             merge_semantics: :set_union,
+             event_refs: ["lineage://evidence-a", "lineage://evidence-b"]
+           }
+  end
+
+  test "lineage replay reports projection-visible divergence" do
+    events = [
+      lineage_event("lineage://root", :command_recorded, 10,
+        root_event?: true,
+        projection_visible?: false
+      ),
+      lineage_event("lineage://state-late", :projection_updated, 30,
+        predecessor_event_refs: ["lineage://root"],
+        projection_key: "projection://document-review/state",
+        merge_semantics: :state_transition,
+        projection_order_key: "document-review:030"
+      ),
+      lineage_event("lineage://state-early", :projection_updated, 20,
+        predecessor_event_refs: ["lineage://root"],
+        projection_key: "projection://document-review/state",
+        merge_semantics: :state_transition,
+        projection_order_key: "document-review:020"
+      )
+    ]
+
+    assert {:ok, report} = ReplayEngine.replay_lineage_events(events)
+
+    assert report.order_diverged? == true
+    assert report.projection_diverged? == true
+    assert [%{projection_key: "projection://document-review/state"}] = report.divergences
+  end
+
+  test "lineage replay fails closed for missing predecessors and required event kinds" do
+    assert {:error, {:missing_predecessor_events, missing}} =
+             ReplayEngine.replay_lineage_events([
+               lineage_event("lineage://receipt", :effect_receipted, 20,
+                 predecessor_event_refs: ["lineage://missing"],
+                 projection_key: "projection://document-review/evidence"
+               )
+             ])
+
+    assert missing == [
+             %{event_ref: "lineage://receipt", missing_predecessor_ref: "lineage://missing"}
+           ]
+
+    assert {:error, {:missing_required_event_kinds, [:projection_updated]}} =
+             ReplayEngine.replay_lineage_events(
+               [
+                 lineage_event("lineage://command", :command_recorded, 10,
+                   root_event?: true,
+                   projection_visible?: false
+                 )
+               ],
+               required_event_kinds: [:command_recorded, :projection_updated]
+             )
+  end
+
   defp source_trace do
     span =
       %Span{
@@ -96,6 +203,28 @@ defmodule AITrace.ReplayEngineTest do
       divergence_thresholds: %{},
       persistence_ref: "persistence://memory/default",
       release_manifest_ref: "release://phase-c"
+    }
+  end
+
+  defp lineage_event(event_ref, event_kind, causal_order, attrs) do
+    attrs = Map.new(attrs)
+    projection_visible? = Map.get(attrs, :projection_visible?, true)
+    projection_key = Map.get(attrs, :projection_key)
+
+    %{
+      event_ref: event_ref,
+      trace_ref: "trace://document-review",
+      event_kind: event_kind,
+      occurred_at: causal_order,
+      predecessor_event_refs: Map.get(attrs, :predecessor_event_refs, []),
+      root_event?: Map.get(attrs, :root_event?, false),
+      projection_key: projection_key,
+      projection_visible?: projection_visible?,
+      projection_order_key: Map.get(attrs, :projection_order_key, event_ref),
+      causal_order: causal_order,
+      merge_semantics: Map.get(attrs, :merge_semantics, :set_union),
+      trace_level: Map.get(attrs, :trace_level, :detailed_proof),
+      metadata_refs: Map.get(attrs, :metadata_refs, %{})
     }
   end
 end

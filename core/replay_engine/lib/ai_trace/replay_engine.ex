@@ -4,6 +4,7 @@ defmodule AITrace.ReplayEngine do
   """
 
   alias AITrace.{ReplayContracts, Span, Trace}
+  alias AITrace.ReplayContracts.LineageReplayEvent
 
   @operator_actions %{
     clean: "accept",
@@ -39,6 +40,40 @@ defmodule AITrace.ReplayEngine do
       end
     end
   end
+
+  @spec replay_lineage_events([map() | LineageReplayEvent.t()], keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def replay_lineage_events(events, opts \\ [])
+
+  def replay_lineage_events(events, opts) when is_list(events) and is_list(opts) do
+    with {:ok, normalized} <- ReplayContracts.lineage_replay_events(events),
+         :ok <- unique_event_refs(normalized),
+         :ok <- required_event_kinds(normalized, Keyword.get(opts, :required_event_kinds, [])),
+         :ok <- complete_predecessors(normalized),
+         {:ok, causal_order} <- causal_order(normalized) do
+      emit_projection = reduce_lineage_projection(normalized)
+      causal_projection = reduce_lineage_projection(causal_order)
+      projection_divergences = projection_divergences(emit_projection, causal_projection)
+
+      {:ok,
+       %{
+         emit_order_event_refs: Enum.map(normalized, & &1.event_ref),
+         causal_order_event_refs: Enum.map(causal_order, & &1.event_ref),
+         order_diverged?:
+           Enum.map(normalized, & &1.event_ref) != Enum.map(causal_order, & &1.event_ref),
+         projection_outputs: %{
+           emit_order: emit_projection,
+           causal_order: causal_projection
+         },
+         projection_diverged?: projection_divergences != [],
+         divergences: projection_divergences,
+         missing_predecessors: [],
+         replay_complete?: true
+       }}
+    end
+  end
+
+  def replay_lineage_events(_events, _opts), do: {:error, :invalid_lineage_replay_events}
 
   defp normalize_request(%ReplayContracts.ReplayRequest{} = request), do: {:ok, request}
   defp normalize_request(attrs) when is_map(attrs), do: ReplayContracts.replay_request(attrs)
@@ -222,5 +257,267 @@ defmodule AITrace.ReplayEngine do
       operator_action: Map.fetch!(@operator_actions, decision_class),
       release_manifest_ref: request.release_manifest_ref
     })
+  end
+
+  defp unique_event_refs(events) do
+    frequencies = Enum.frequencies_by(events, & &1.event_ref)
+
+    case frequencies |> Enum.filter(fn {_event_ref, count} -> count > 1 end) do
+      [] ->
+        :ok
+
+      duplicate_refs ->
+        {:error, {:duplicate_lineage_event_refs, Enum.map(duplicate_refs, &elem(&1, 0))}}
+    end
+  end
+
+  defp required_event_kinds(_events, []), do: :ok
+
+  defp required_event_kinds(events, required_kinds) when is_list(required_kinds) do
+    observed = Map.new(events, &{&1.event_kind, true})
+
+    missing =
+      required_kinds
+      |> Enum.reject(&Map.has_key?(observed, &1))
+      |> Enum.sort_by(&Atom.to_string/1)
+
+    case missing do
+      [] -> :ok
+      _missing -> {:error, {:missing_required_event_kinds, missing}}
+    end
+  end
+
+  defp required_event_kinds(_events, _required_kinds),
+    do: {:error, {:invalid_replay_field, :required_event_kinds}}
+
+  defp complete_predecessors(events) do
+    event_refs = Map.new(events, &{&1.event_ref, true})
+
+    missing =
+      events
+      |> Enum.flat_map(fn event ->
+        event.predecessor_event_refs
+        |> Enum.reject(&Map.has_key?(event_refs, &1))
+        |> Enum.map(&%{event_ref: event.event_ref, missing_predecessor_ref: &1})
+      end)
+      |> Enum.sort_by(&{&1.event_ref, &1.missing_predecessor_ref})
+
+    case missing do
+      [] -> :ok
+      _missing -> {:error, {:missing_predecessor_events, missing}}
+    end
+  end
+
+  defp causal_order(events) do
+    events_by_ref = Map.new(events, &{&1.event_ref, &1})
+    pending_refs = Map.new(events, &{&1.event_ref, true})
+    emitted_refs = %{}
+    ordered = []
+
+    do_causal_order(events_by_ref, pending_refs, emitted_refs, ordered)
+  end
+
+  defp do_causal_order(events_by_ref, pending_refs, emitted_refs, ordered) do
+    case map_size(pending_refs) do
+      0 ->
+        {:ok, Enum.reverse(ordered)}
+
+      _pending_count ->
+        ready =
+          events_by_ref
+          |> Map.values()
+          |> Enum.filter(fn event ->
+            Map.has_key?(pending_refs, event.event_ref) and
+              Enum.all?(event.predecessor_event_refs, &Map.has_key?(emitted_refs, &1))
+          end)
+          |> Enum.sort_by(&lineage_sort_key/1)
+
+        case ready do
+          [] ->
+            {:error, {:cyclic_lineage_events, pending_refs |> Map.keys() |> Enum.sort()}}
+
+          [next | _rest] ->
+            do_causal_order(
+              events_by_ref,
+              Map.delete(pending_refs, next.event_ref),
+              Map.put(emitted_refs, next.event_ref, true),
+              [next | ordered]
+            )
+        end
+    end
+  end
+
+  defp lineage_sort_key(event),
+    do: {event.causal_order, event.projection_order_key, event.event_ref}
+
+  defp reduce_lineage_projection(events) do
+    Enum.reduce(events, %{}, fn
+      %{projection_visible?: false}, acc ->
+        acc
+
+      %{projection_key: nil}, acc ->
+        acc
+
+      event, acc ->
+        Map.update(acc, event.projection_key, initial_projection_value(event), fn current ->
+          merge_projection_value(current, event)
+        end)
+    end)
+  end
+
+  defp initial_projection_value(%{merge_semantics: :set_union} = event) do
+    %{merge_semantics: :set_union, event_refs: [event.event_ref]}
+  end
+
+  defp initial_projection_value(%{merge_semantics: :map_merge_by_key} = event) do
+    %{
+      merge_semantics: :map_merge_by_key,
+      entries: metadata_entries(event),
+      event_refs: [event.event_ref]
+    }
+  end
+
+  defp initial_projection_value(%{merge_semantics: :max} = event) do
+    %{merge_semantics: :max, causal_order: event.causal_order, event_ref: event.event_ref}
+  end
+
+  defp initial_projection_value(%{merge_semantics: :min} = event) do
+    %{merge_semantics: :min, causal_order: event.causal_order, event_ref: event.event_ref}
+  end
+
+  defp initial_projection_value(%{merge_semantics: :last_write_by_causal_order} = event) do
+    %{
+      merge_semantics: :last_write_by_causal_order,
+      causal_order: event.causal_order,
+      projection_order_key: event.projection_order_key,
+      event_ref: event.event_ref
+    }
+  end
+
+  defp initial_projection_value(%{merge_semantics: :append_by_projection_order} = event) do
+    %{
+      merge_semantics: :append_by_projection_order,
+      event_refs: [event.event_ref],
+      ordered_event_refs: [{event.projection_order_key, event.event_ref}]
+    }
+  end
+
+  defp initial_projection_value(%{merge_semantics: :state_transition} = event) do
+    %{
+      merge_semantics: :state_transition,
+      current_event_ref: event.event_ref,
+      applied_event_refs: [event.event_ref]
+    }
+  end
+
+  defp initial_projection_value(event) do
+    %{merge_semantics: event.merge_semantics, event_refs: [event.event_ref]}
+  end
+
+  defp merge_projection_value(%{merge_semantics: :set_union} = current, event) do
+    %{
+      current
+      | event_refs:
+          current.event_refs |> Kernel.++([event.event_ref]) |> Enum.uniq() |> Enum.sort()
+    }
+  end
+
+  defp merge_projection_value(%{merge_semantics: :map_merge_by_key} = current, event) do
+    %{
+      current
+      | entries: Map.merge(current.entries, metadata_entries(event)),
+        event_refs:
+          current.event_refs |> Kernel.++([event.event_ref]) |> Enum.uniq() |> Enum.sort()
+    }
+  end
+
+  defp merge_projection_value(%{merge_semantics: :max} = current, event) do
+    if event.causal_order > current.causal_order do
+      %{current | causal_order: event.causal_order, event_ref: event.event_ref}
+    else
+      current
+    end
+  end
+
+  defp merge_projection_value(%{merge_semantics: :min} = current, event) do
+    if event.causal_order < current.causal_order do
+      %{current | causal_order: event.causal_order, event_ref: event.event_ref}
+    else
+      current
+    end
+  end
+
+  defp merge_projection_value(%{merge_semantics: :last_write_by_causal_order} = current, event) do
+    current_sort_key = {current.causal_order, current.projection_order_key, current.event_ref}
+
+    if lineage_sort_key(event) >= current_sort_key do
+      %{
+        current
+        | causal_order: event.causal_order,
+          projection_order_key: event.projection_order_key,
+          event_ref: event.event_ref
+      }
+    else
+      current
+    end
+  end
+
+  defp merge_projection_value(%{merge_semantics: :append_by_projection_order} = current, event) do
+    ordered_event_refs =
+      current.ordered_event_refs
+      |> Kernel.++([{event.projection_order_key, event.event_ref}])
+      |> Enum.sort()
+
+    %{
+      current
+      | ordered_event_refs: ordered_event_refs,
+        event_refs: Enum.map(ordered_event_refs, &elem(&1, 1))
+    }
+  end
+
+  defp merge_projection_value(%{merge_semantics: :state_transition} = current, event) do
+    %{
+      current
+      | current_event_ref: event.event_ref,
+        applied_event_refs: current.applied_event_refs ++ [event.event_ref]
+    }
+  end
+
+  defp merge_projection_value(current, event) do
+    %{
+      current
+      | event_refs:
+          current.event_refs |> Kernel.++([event.event_ref]) |> Enum.uniq() |> Enum.sort()
+    }
+  end
+
+  defp metadata_entries(%{metadata_refs: metadata_refs}) do
+    Map.get(metadata_refs, :projection_entries) || Map.get(metadata_refs, "projection_entries") ||
+      %{}
+  end
+
+  defp projection_divergences(emit_projection, causal_projection) do
+    projection_keys =
+      emit_projection
+      |> Map.keys()
+      |> Kernel.++(Map.keys(causal_projection))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    projection_keys
+    |> Enum.flat_map(fn projection_key ->
+      if Map.get(emit_projection, projection_key) == Map.get(causal_projection, projection_key) do
+        []
+      else
+        [
+          %{
+            phase: :projection_replay,
+            projection_key: projection_key,
+            severity: :regress,
+            remediation_class: :review_reducer_ordering
+          }
+        ]
+      end
+    end)
   end
 end
