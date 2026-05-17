@@ -140,6 +140,265 @@ defmodule AITrace.ReplayEngineTest do
     assert [%{projection_key: "projection://document-review/state"}] = report.divergences
   end
 
+  test "lineage replay reconstructs an Extravaganza product execution-record DAG" do
+    events = [
+      lineage_event("lineage://extravaganza/projection-updated", :projection_updated, 90,
+        predecessor_event_refs: [
+          "lineage://extravaganza/receipt-reduced",
+          "lineage://extravaganza/evidence-attached"
+        ],
+        projection_key: "projection://extravaganza/run/run-17",
+        projection_order_key: "extravaganza:090",
+        merge_semantics: :last_write_by_causal_order,
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://extravaganza/effect-requested", :effect_requested, 60,
+        predecessor_event_refs: ["lineage://extravaganza/credential-lease"],
+        projection_key: "projection://extravaganza/provider-facts",
+        projection_order_key: "extravaganza:060",
+        merge_semantics: :map_merge_by_key,
+        trace_level: :core_lineage,
+        metadata_refs: %{
+          projection_entries: %{
+            "provider" => "linear",
+            "operation" => "linear.comments.create"
+          }
+        }
+      ),
+      lineage_event("lineage://extravaganza/command", :command_recorded, 10,
+        root_event?: true,
+        projection_visible?: false,
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://extravaganza/workflow", :workflow_started, 20,
+        predecessor_event_refs: ["lineage://extravaganza/command"],
+        projection_visible?: false,
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://extravaganza/operation-requested", :operation_requested, 30,
+        predecessor_event_refs: ["lineage://extravaganza/workflow"],
+        projection_key: "projection://extravaganza/operations",
+        projection_order_key: "extravaganza:030",
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://extravaganza/manifest", :jido_manifest_resolved, 40,
+        predecessor_event_refs: ["lineage://extravaganza/operation-requested"],
+        projection_key: "projection://extravaganza/provider-facts",
+        projection_order_key: "extravaganza:040",
+        merge_semantics: :map_merge_by_key,
+        trace_level: :core_lineage,
+        metadata_refs: %{
+          projection_entries: %{
+            "connector_manifest_ref" => "manifest://linear/comments/v1"
+          }
+        }
+      ),
+      lineage_event("lineage://extravaganza/credential-lease", :credential_lease_materialized, 50,
+        predecessor_event_refs: ["lineage://extravaganza/manifest"],
+        projection_visible?: false,
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://extravaganza/effect-receipted", :effect_receipted, 70,
+        predecessor_event_refs: ["lineage://extravaganza/effect-requested"],
+        projection_key: "projection://extravaganza/provider-facts",
+        projection_order_key: "extravaganza:070",
+        merge_semantics: :map_merge_by_key,
+        trace_level: :core_lineage,
+        metadata_refs: %{
+          projection_entries: %{
+            "provider_object_ref" => "linear-comment://comment-1"
+          }
+        }
+      ),
+      lineage_event("lineage://extravaganza/receipt-reduced", :receipt_reduced, 80,
+        predecessor_event_refs: ["lineage://extravaganza/effect-receipted"],
+        projection_key: "projection://extravaganza/receipts",
+        projection_order_key: "extravaganza:080",
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://extravaganza/evidence-attached", :evidence_attached, 85,
+        predecessor_event_refs: ["lineage://extravaganza/receipt-reduced"],
+        projection_key: "projection://extravaganza/evidence",
+        projection_order_key: "extravaganza:085",
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://extravaganza/replay-exported", :replay_exported, 100,
+        predecessor_event_refs: ["lineage://extravaganza/projection-updated"],
+        projection_visible?: false,
+        trace_level: :replay_minimum
+      )
+    ]
+
+    assert {:ok, report} =
+             ReplayEngine.replay_lineage_events(events,
+               required_event_kinds: [
+                 :command_recorded,
+                 :workflow_started,
+                 :operation_requested,
+                 :jido_manifest_resolved,
+                 :credential_lease_materialized,
+                 :effect_requested,
+                 :effect_receipted,
+                 :receipt_reduced,
+                 :evidence_attached,
+                 :projection_updated,
+                 :replay_exported
+               ]
+             )
+
+    assert report.replay_complete? == true
+    assert report.order_diverged? == true
+    assert report.projection_diverged? == false
+
+    assert report.causal_order_event_refs == [
+             "lineage://extravaganza/command",
+             "lineage://extravaganza/workflow",
+             "lineage://extravaganza/operation-requested",
+             "lineage://extravaganza/manifest",
+             "lineage://extravaganza/credential-lease",
+             "lineage://extravaganza/effect-requested",
+             "lineage://extravaganza/effect-receipted",
+             "lineage://extravaganza/receipt-reduced",
+             "lineage://extravaganza/evidence-attached",
+             "lineage://extravaganza/projection-updated",
+             "lineage://extravaganza/replay-exported"
+           ]
+
+    assert report.projection_outputs.causal_order["projection://extravaganza/provider-facts"] ==
+             %{
+               merge_semantics: :map_merge_by_key,
+               entries: %{
+                 "connector_manifest_ref" => "manifest://linear/comments/v1",
+                 "operation" => "linear.comments.create",
+                 "provider" => "linear",
+                 "provider_object_ref" => "linear-comment://comment-1"
+               },
+               event_refs: [
+                 "lineage://extravaganza/effect-receipted",
+                 "lineage://extravaganza/effect-requested",
+                 "lineage://extravaganza/manifest"
+               ]
+             }
+
+    assert report.projection_outputs.causal_order["projection://extravaganza/run/run-17"] ==
+             %{
+               merge_semantics: :last_write_by_causal_order,
+               causal_order: 90,
+               projection_order_key: "extravaganza:090",
+               event_ref: "lineage://extravaganza/projection-updated"
+             }
+  end
+
+  test "lineage replay reconstructs a neutral toy document review execution-record DAG" do
+    events = [
+      lineage_event("lineage://toy/review-evidence", :effect_receipted, 60,
+        predecessor_event_refs: ["lineage://toy/review-runtime"],
+        projection_key: "projection://toy-document-review/operations",
+        projection_order_key: "toy:060"
+      ),
+      lineage_event("lineage://toy/semantic-intent", :semantic_intent, 10,
+        root_event?: true,
+        projection_visible?: false
+      ),
+      lineage_event("lineage://toy/semantic-normalized", :semantic_normalized, 20,
+        predecessor_event_refs: ["lineage://toy/semantic-intent"],
+        projection_visible?: false
+      ),
+      lineage_event("lineage://toy/command", :command_recorded, 30,
+        predecessor_event_refs: ["lineage://toy/semantic-normalized"],
+        projection_visible?: false
+      ),
+      lineage_event("lineage://toy/authority", :authority_compiled, 35,
+        predecessor_event_refs: ["lineage://toy/command"],
+        projection_visible?: false
+      ),
+      lineage_event("lineage://toy/review-runtime-request", :operation_requested, 40,
+        predecessor_event_refs: ["lineage://toy/authority"],
+        projection_key: "projection://toy-document-review/operations",
+        projection_order_key: "toy:040"
+      ),
+      lineage_event("lineage://toy/review-extract-tool", :effect_receipted, 45,
+        predecessor_event_refs: ["lineage://toy/review-runtime-request"],
+        projection_key: "projection://toy-document-review/operations",
+        projection_order_key: "toy:045"
+      ),
+      lineage_event("lineage://toy/review-runtime", :effect_receipted, 50,
+        predecessor_event_refs: ["lineage://toy/review-runtime-request"],
+        projection_key: "projection://toy-document-review/operations",
+        projection_order_key: "toy:050"
+      ),
+      lineage_event("lineage://toy/review-opened", :review_opened, 70,
+        predecessor_event_refs: ["lineage://toy/review-evidence"],
+        projection_key: "projection://toy-document-review/review",
+        projection_order_key: "toy:070",
+        merge_semantics: :state_transition
+      ),
+      lineage_event("lineage://toy/review-projection", :projection_updated, 80,
+        predecessor_event_refs: ["lineage://toy/review-opened"],
+        projection_key: "projection://toy-document-review/status",
+        projection_order_key: "toy:080",
+        merge_semantics: :last_write_by_causal_order
+      ),
+      lineage_event("lineage://toy/replay-exported", :replay_exported, 90,
+        predecessor_event_refs: ["lineage://toy/review-projection"],
+        projection_visible?: false,
+        trace_level: :replay_minimum
+      )
+    ]
+
+    assert {:ok, report} =
+             ReplayEngine.replay_lineage_events(events,
+               required_event_kinds: [
+                 :semantic_intent,
+                 :semantic_normalized,
+                 :command_recorded,
+                 :authority_compiled,
+                 :operation_requested,
+                 :effect_receipted,
+                 :review_opened,
+                 :projection_updated,
+                 :replay_exported
+               ]
+             )
+
+    assert report.replay_complete? == true
+    assert report.order_diverged? == true
+    assert report.projection_diverged? == false
+
+    assert report.causal_order_event_refs == [
+             "lineage://toy/semantic-intent",
+             "lineage://toy/semantic-normalized",
+             "lineage://toy/command",
+             "lineage://toy/authority",
+             "lineage://toy/review-runtime-request",
+             "lineage://toy/review-extract-tool",
+             "lineage://toy/review-runtime",
+             "lineage://toy/review-evidence",
+             "lineage://toy/review-opened",
+             "lineage://toy/review-projection",
+             "lineage://toy/replay-exported"
+           ]
+
+    assert report.projection_outputs.causal_order["projection://toy-document-review/operations"] ==
+             %{
+               merge_semantics: :set_union,
+               event_refs: [
+                 "lineage://toy/review-evidence",
+                 "lineage://toy/review-extract-tool",
+                 "lineage://toy/review-runtime",
+                 "lineage://toy/review-runtime-request"
+               ]
+             }
+
+    assert report.projection_outputs.causal_order["projection://toy-document-review/status"] ==
+             %{
+               merge_semantics: :last_write_by_causal_order,
+               causal_order: 80,
+               projection_order_key: "toy:080",
+               event_ref: "lineage://toy/review-projection"
+             }
+  end
+
   test "lineage replay fails closed for missing predecessors and required event kinds" do
     assert {:error, {:missing_predecessor_events, missing}} =
              ReplayEngine.replay_lineage_events([
