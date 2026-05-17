@@ -90,6 +90,79 @@ defmodule AITrace.ReplayContractsTest do
              |> ReplayContracts.lineage_replay_event()
   end
 
+  test "lineage replay events carry trace-level retention and emission expectations" do
+    assert ReplayContracts.trace_levels() == [
+             :core_lineage,
+             :detailed_proof,
+             :replay_minimum
+           ]
+
+    assert ReplayContracts.emission_modes() == [:inline, :async, :batched]
+
+    expectations = [
+      %{
+        trace_level: :core_lineage,
+        metadata_refs: %{
+          retention_policy_ref: "retention://lineage/core/30d",
+          ttl_seconds: 2_592_000,
+          emission_mode: :async,
+          emission_expectation_ref: "emission://lineage/core/async"
+        }
+      },
+      %{
+        trace_level: :detailed_proof,
+        metadata_refs: %{
+          retention_policy_ref: "retention://lineage/proof/90d",
+          ttl_seconds: 7_776_000,
+          emission_mode: :batched,
+          batch_ref: "batch://lineage/proof/20260517",
+          emission_expectation_ref: "emission://lineage/proof/batched"
+        }
+      },
+      %{
+        trace_level: :replay_minimum,
+        metadata_refs: %{
+          retention_policy_ref: "retention://lineage/replay-minimum/7d",
+          ttl_seconds: 604_800,
+          emission_mode: :inline,
+          emission_expectation_ref: "emission://lineage/replay-minimum/inline"
+        }
+      }
+    ]
+
+    for expectation <- expectations do
+      assert {:ok, event} =
+               lineage_event_attrs()
+               |> Map.merge(expectation)
+               |> ReplayContracts.lineage_replay_event()
+
+      assert event.trace_level == expectation.trace_level
+      assert event.metadata_refs == expectation.metadata_refs
+    end
+  end
+
+  test "lineage replay retention and emission expectations fail closed" do
+    assert {:error, {:missing_replay_ref, :retention_policy_ref}} =
+             lineage_event_attrs()
+             |> put_metadata(:retention_policy_ref, "")
+             |> ReplayContracts.lineage_replay_event()
+
+    assert {:error, {:invalid_replay_field, :ttl_seconds}} =
+             lineage_event_attrs()
+             |> put_metadata(:ttl_seconds, 0)
+             |> ReplayContracts.lineage_replay_event()
+
+    assert {:error, {:invalid_replay_field, :emission_mode}} =
+             lineage_event_attrs()
+             |> put_metadata(:emission_mode, :fire_and_forget)
+             |> ReplayContracts.lineage_replay_event()
+
+    assert {:error, {:missing_replay_ref, :batch_ref}} =
+             lineage_event_attrs()
+             |> put_metadata(:emission_mode, :batched)
+             |> ReplayContracts.lineage_replay_event()
+  end
+
   defp request_attrs do
     %{
       tenant_ref: "tenant://a",
@@ -134,5 +207,9 @@ defmodule AITrace.ReplayContractsTest do
       trace_level: :detailed_proof,
       metadata_refs: %{receipt_ref: "receipt://effect"}
     }
+  end
+
+  defp put_metadata(attrs, key, value) do
+    Map.update!(attrs, :metadata_refs, &Map.put(&1, key, value))
   end
 end

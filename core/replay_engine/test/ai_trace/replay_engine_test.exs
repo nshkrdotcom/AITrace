@@ -140,6 +140,74 @@ defmodule AITrace.ReplayEngineTest do
     assert [%{projection_key: "projection://document-review/state"}] = report.divergences
   end
 
+  test "lineage replay reports trace-level retention and emission expectations" do
+    events = [
+      lineage_event("lineage://retention/core", :command_recorded, 10,
+        root_event?: true,
+        projection_visible?: false,
+        trace_level: :core_lineage,
+        metadata_refs: %{
+          retention_policy_ref: "retention://lineage/core/30d",
+          ttl_seconds: 2_592_000,
+          emission_mode: :async,
+          emission_expectation_ref: "emission://lineage/core/async"
+        }
+      ),
+      lineage_event("lineage://retention/proof", :effect_receipted, 20,
+        predecessor_event_refs: ["lineage://retention/core"],
+        projection_key: "projection://document-review/evidence",
+        trace_level: :detailed_proof,
+        metadata_refs: %{
+          retention_policy_ref: "retention://lineage/proof/90d",
+          ttl_seconds: 7_776_000,
+          emission_mode: :batched,
+          batch_ref: "batch://lineage/proof/20260517",
+          emission_expectation_ref: "emission://lineage/proof/batched"
+        }
+      ),
+      lineage_event("lineage://retention/replay", :replay_exported, 30,
+        predecessor_event_refs: ["lineage://retention/proof"],
+        projection_visible?: false,
+        trace_level: :replay_minimum,
+        metadata_refs: %{
+          retention_policy_ref: "retention://lineage/replay-minimum/7d",
+          ttl_seconds: 604_800,
+          emission_mode: :inline,
+          emission_expectation_ref: "emission://lineage/replay-minimum/inline"
+        }
+      )
+    ]
+
+    assert {:ok, report} = ReplayEngine.replay_lineage_events(events)
+
+    assert report.trace_level_expectations[:core_lineage] == %{
+             event_refs: ["lineage://retention/core"],
+             retention_policy_refs: ["retention://lineage/core/30d"],
+             ttl_seconds: [2_592_000],
+             emission_modes: [:async],
+             batch_refs: [],
+             emission_expectation_refs: ["emission://lineage/core/async"]
+           }
+
+    assert report.trace_level_expectations[:detailed_proof] == %{
+             event_refs: ["lineage://retention/proof"],
+             retention_policy_refs: ["retention://lineage/proof/90d"],
+             ttl_seconds: [7_776_000],
+             emission_modes: [:batched],
+             batch_refs: ["batch://lineage/proof/20260517"],
+             emission_expectation_refs: ["emission://lineage/proof/batched"]
+           }
+
+    assert report.trace_level_expectations[:replay_minimum] == %{
+             event_refs: ["lineage://retention/replay"],
+             retention_policy_refs: ["retention://lineage/replay-minimum/7d"],
+             ttl_seconds: [604_800],
+             emission_modes: [:inline],
+             batch_refs: [],
+             emission_expectation_refs: ["emission://lineage/replay-minimum/inline"]
+           }
+  end
+
   test "lineage replay reconstructs an Extravaganza product execution-record DAG" do
     events = [
       lineage_event("lineage://extravaganza/projection-updated", :projection_updated, 90,

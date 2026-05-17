@@ -59,6 +59,7 @@ defmodule AITrace.ReplayEngine do
        %{
          emit_order_event_refs: Enum.map(normalized, & &1.event_ref),
          causal_order_event_refs: Enum.map(causal_order, & &1.event_ref),
+         trace_level_expectations: trace_level_expectations(normalized),
          order_diverged?:
            Enum.map(normalized, & &1.event_ref) != Enum.map(causal_order, & &1.event_ref),
          projection_outputs: %{
@@ -364,6 +365,39 @@ defmodule AITrace.ReplayEngine do
         end)
     end)
   end
+
+  defp trace_level_expectations(events) do
+    events
+    |> Enum.group_by(& &1.trace_level)
+    |> Map.new(fn {trace_level, level_events} ->
+      {trace_level,
+       %{
+         event_refs: level_events |> Enum.map(& &1.event_ref) |> Enum.sort(),
+         retention_policy_refs: metadata_values(level_events, :retention_policy_ref),
+         ttl_seconds: metadata_values(level_events, :ttl_seconds),
+         emission_modes: metadata_values(level_events, :emission_mode),
+         batch_refs: metadata_values(level_events, :batch_ref),
+         emission_expectation_refs: metadata_values(level_events, :emission_expectation_ref)
+       }}
+    end)
+  end
+
+  defp metadata_values(events, field) do
+    events
+    |> Enum.map(&metadata_value(&1, field))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort_by(&metadata_value_sort_key/1)
+  end
+
+  defp metadata_value(%{metadata_refs: metadata_refs}, field) do
+    Map.get(metadata_refs, field) || Map.get(metadata_refs, Atom.to_string(field))
+  end
+
+  defp metadata_value_sort_key(value) when is_integer(value), do: {0, value}
+  defp metadata_value_sort_key(value) when is_binary(value), do: {1, value}
+  defp metadata_value_sort_key(value) when is_atom(value), do: {2, Atom.to_string(value)}
+  defp metadata_value_sort_key(value), do: {3, inspect(value)}
 
   defp initial_projection_value(%{merge_semantics: :set_union} = event) do
     %{merge_semantics: :set_union, event_refs: [event.event_ref]}

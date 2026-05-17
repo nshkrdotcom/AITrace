@@ -48,6 +48,7 @@ defmodule AITrace.ReplayContracts do
     :operation_canceled
   ]
   @trace_levels [:core_lineage, :detailed_proof, :replay_minimum]
+  @emission_modes [:inline, :async, :batched]
   @merge_semantics [
     :diagnostic,
     :set_union,
@@ -274,6 +275,9 @@ defmodule AITrace.ReplayContracts do
   @spec trace_levels() :: [atom()]
   def trace_levels, do: @trace_levels
 
+  @spec emission_modes() :: [atom()]
+  def emission_modes, do: @emission_modes
+
   @spec merge_semantics() :: [atom()]
   def merge_semantics, do: @merge_semantics
 
@@ -383,6 +387,7 @@ defmodule AITrace.ReplayContracts do
          {:ok, projection_order_key} <-
            optional_string(attrs, :projection_order_key, fetch!(attrs, :event_ref)),
          {:ok, metadata_refs} <- map_field(attrs, :metadata_refs, %{}),
+         :ok <- lineage_metadata_contract(metadata_refs),
          :ok <- predecessor_contract(root_event?, predecessor_event_refs) do
       {:ok,
        %LineageReplayEvent{
@@ -470,6 +475,77 @@ defmodule AITrace.ReplayContracts do
       _value -> {:error, {:invalid_replay_field, field}}
     end
   end
+
+  defp lineage_metadata_contract(metadata_refs) do
+    with :ok <- optional_metadata_string(metadata_refs, :retention_policy_ref),
+         :ok <- optional_metadata_positive_integer(metadata_refs, :ttl_seconds),
+         {:ok, emission_mode} <-
+           optional_metadata_member(metadata_refs, :emission_mode, @emission_modes),
+         :ok <- optional_metadata_string(metadata_refs, :emission_expectation_ref) do
+      batch_emission_contract(metadata_refs, emission_mode)
+    end
+  end
+
+  defp optional_metadata_string(metadata_refs, field) do
+    case fetch(metadata_refs, field) do
+      nil -> :ok
+      value when is_binary(value) -> nonempty_metadata_string(field, value)
+      _value -> {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp required_metadata_string(metadata_refs, field) do
+    case fetch(metadata_refs, field) do
+      nil -> {:error, {:missing_replay_ref, field}}
+      value when is_binary(value) -> nonempty_metadata_string(field, value)
+      _value -> {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp nonempty_metadata_string(field, value) do
+    if present_string?(value) do
+      :ok
+    else
+      {:error, {:missing_replay_ref, field}}
+    end
+  end
+
+  defp optional_metadata_positive_integer(metadata_refs, field) do
+    case fetch(metadata_refs, field) do
+      nil -> :ok
+      value when is_integer(value) and value > 0 -> :ok
+      _value -> {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp optional_metadata_member(metadata_refs, field, allowed) do
+    case fetch(metadata_refs, field) do
+      nil -> {:ok, nil}
+      value when is_atom(value) -> metadata_atom_member(value, field, allowed)
+      value when is_binary(value) -> metadata_binary_member(value, field, allowed)
+      _value -> {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp metadata_atom_member(value, field, allowed) do
+    if value in allowed do
+      {:ok, value}
+    else
+      {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp metadata_binary_member(value, field, allowed) do
+    case Enum.find(allowed, &(Atom.to_string(&1) == value)) do
+      nil -> {:error, {:invalid_replay_field, field}}
+      atom -> {:ok, atom}
+    end
+  end
+
+  defp batch_emission_contract(metadata_refs, :batched),
+    do: required_metadata_string(metadata_refs, :batch_ref)
+
+  defp batch_emission_contract(_metadata_refs, _emission_mode), do: :ok
 
   defp integer_field(attrs, field) do
     case fetch(attrs, field) do
