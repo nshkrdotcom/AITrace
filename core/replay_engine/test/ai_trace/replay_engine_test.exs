@@ -208,6 +208,134 @@ defmodule AITrace.ReplayEngineTest do
            }
   end
 
+  test "trace profile allows production default to stay on core lineage" do
+    events = [
+      lineage_event("lineage://production/command", :command_recorded, 10,
+        root_event?: true,
+        projection_visible?: false,
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://production/effect", :effect_receipted, 20,
+        predecessor_event_refs: ["lineage://production/command"],
+        projection_key: "projection://production/effects",
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://production/projection", :projection_updated, 30,
+        predecessor_event_refs: ["lineage://production/effect"],
+        projection_key: "projection://production/readback",
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://production/replay", :replay_exported, 40,
+        predecessor_event_refs: ["lineage://production/projection"],
+        projection_visible?: false,
+        trace_level: :replay_minimum
+      )
+    ]
+
+    assert {:ok, report} =
+             ReplayEngine.replay_lineage_events(events, trace_profile: :production_default)
+
+    assert report.trace_level_policy == %{
+             profile: :production_default,
+             default_trace_level: :core_lineage,
+             required_trace_level: :core_lineage,
+             allowed_trace_levels: [:core_lineage, :replay_minimum],
+             required_event_kinds: [],
+             requires_detailed_proof?: false,
+             production_default?: true
+           }
+
+    refute Map.has_key?(report.trace_level_expectations, :detailed_proof)
+
+    detailed_event =
+      lineage_event("lineage://production/detailed", :effect_receipted, 50,
+        predecessor_event_refs: ["lineage://production/replay"],
+        projection_key: "projection://production/effects",
+        trace_level: :detailed_proof
+      )
+
+    assert {:error, {:disallowed_trace_level, :production_default, :detailed_proof}} =
+             ReplayEngine.replay_lineage_events(events ++ [detailed_event],
+               trace_profile: :production_default
+             )
+  end
+
+  test "trace profile requires detailed proof for StackLab proof-critical events" do
+    events = [
+      lineage_event("lineage://stacklab/command", :command_recorded, 10,
+        root_event?: true,
+        projection_visible?: false,
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://stacklab/operation", :operation_requested, 20,
+        predecessor_event_refs: ["lineage://stacklab/command"],
+        projection_key: "projection://stacklab/proof/operations",
+        trace_level: :detailed_proof
+      ),
+      lineage_event("lineage://stacklab/effect-request", :effect_requested, 30,
+        predecessor_event_refs: ["lineage://stacklab/operation"],
+        projection_key: "projection://stacklab/proof/effects",
+        trace_level: :detailed_proof
+      ),
+      lineage_event("lineage://stacklab/effect-receipt", :effect_receipted, 40,
+        predecessor_event_refs: ["lineage://stacklab/effect-request"],
+        projection_key: "projection://stacklab/proof/effects",
+        trace_level: :detailed_proof
+      ),
+      lineage_event("lineage://stacklab/receipt", :receipt_reduced, 50,
+        predecessor_event_refs: ["lineage://stacklab/effect-receipt"],
+        projection_key: "projection://stacklab/proof/receipts",
+        trace_level: :detailed_proof
+      ),
+      lineage_event("lineage://stacklab/projection", :projection_updated, 60,
+        predecessor_event_refs: ["lineage://stacklab/receipt"],
+        projection_key: "projection://stacklab/proof/readback",
+        merge_semantics: :last_write_by_causal_order,
+        trace_level: :detailed_proof
+      ),
+      lineage_event("lineage://stacklab/replay", :replay_exported, 70,
+        predecessor_event_refs: ["lineage://stacklab/projection"],
+        projection_visible?: false,
+        trace_level: :replay_minimum
+      )
+    ]
+
+    assert {:ok, report} =
+             ReplayEngine.replay_lineage_events(events, trace_profile: :stacklab_proof)
+
+    assert report.trace_level_policy.profile == :stacklab_proof
+    assert report.trace_level_policy.requires_detailed_proof?
+
+    assert report.trace_level_policy.required_event_kinds == [
+             :operation_requested,
+             :effect_requested,
+             :effect_receipted,
+             :receipt_reduced,
+             :projection_updated
+           ]
+
+    assert report.trace_level_expectations[:detailed_proof].event_refs == [
+             "lineage://stacklab/effect-receipt",
+             "lineage://stacklab/effect-request",
+             "lineage://stacklab/operation",
+             "lineage://stacklab/projection",
+             "lineage://stacklab/receipt"
+           ]
+
+    missing_receipt_detail =
+      Enum.map(events, fn
+        %{event_kind: :receipt_reduced} = event -> %{event | trace_level: :core_lineage}
+        event -> event
+      end)
+
+    assert {:error,
+            {:missing_trace_level_event_kinds, :stacklab_proof, :detailed_proof,
+             [:receipt_reduced]}} =
+             ReplayEngine.replay_lineage_events(missing_receipt_detail,
+               trace_profile: :stacklab_proof
+             )
+  end
+
   test "lineage replay reconstructs an Extravaganza product execution-record DAG" do
     events = [
       lineage_event("lineage://extravaganza/projection-updated", :projection_updated, 90,

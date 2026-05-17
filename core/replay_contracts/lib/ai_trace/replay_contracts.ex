@@ -26,6 +26,7 @@ defmodule AITrace.ReplayContracts do
   @remediation_classes [:none, :review, :rollback_prompt, :update_fixture, :operator_decision]
   @decision_classes [:clean, :diverged, :denied, :inconclusive]
   @cost_classes [:replay]
+  @trace_profiles [:production_default, :stacklab_proof]
   @lineage_event_kinds [
     :semantic_intent,
     :semantic_normalized,
@@ -49,6 +50,13 @@ defmodule AITrace.ReplayContracts do
   ]
   @trace_levels [:core_lineage, :detailed_proof, :replay_minimum]
   @emission_modes [:inline, :async, :batched]
+  @stacklab_proof_required_event_kinds [
+    :operation_requested,
+    :effect_requested,
+    :effect_receipted,
+    :receipt_reduced,
+    :projection_updated
+  ]
   @merge_semantics [
     :diagnostic,
     :set_union,
@@ -260,6 +268,30 @@ defmodule AITrace.ReplayContracts do
           }
   end
 
+  defmodule TraceLevelPolicy do
+    @moduledoc "Trace-level requirements for production and StackLab proof runs."
+    @enforce_keys [
+      :profile,
+      :default_trace_level,
+      :required_trace_level,
+      :allowed_trace_levels,
+      :required_event_kinds,
+      :requires_detailed_proof?,
+      :production_default?
+    ]
+    defstruct @enforce_keys
+
+    @type t :: %__MODULE__{
+            profile: atom(),
+            default_trace_level: atom(),
+            required_trace_level: atom(),
+            allowed_trace_levels: [atom()],
+            required_event_kinds: [atom()],
+            requires_detailed_proof?: boolean(),
+            production_default?: boolean()
+          }
+  end
+
   @spec replay_modes() :: [atom()]
   def replay_modes, do: @replay_modes
 
@@ -274,6 +306,9 @@ defmodule AITrace.ReplayContracts do
 
   @spec trace_levels() :: [atom()]
   def trace_levels, do: @trace_levels
+
+  @spec trace_profiles() :: [atom()]
+  def trace_profiles, do: @trace_profiles
 
   @spec emission_modes() :: [atom()]
   def emission_modes, do: @emission_modes
@@ -362,6 +397,43 @@ defmodule AITrace.ReplayContracts do
   end
 
   def replay_bundle(_attrs), do: {:error, :invalid_replay_bundle}
+
+  @spec trace_level_policy(atom() | String.t()) ::
+          {:ok, TraceLevelPolicy.t()} | {:error, term()}
+  def trace_level_policy(:production_default) do
+    {:ok,
+     %TraceLevelPolicy{
+       profile: :production_default,
+       default_trace_level: :core_lineage,
+       required_trace_level: :core_lineage,
+       allowed_trace_levels: [:core_lineage, :replay_minimum],
+       required_event_kinds: [],
+       requires_detailed_proof?: false,
+       production_default?: true
+     }}
+  end
+
+  def trace_level_policy(:stacklab_proof) do
+    {:ok,
+     %TraceLevelPolicy{
+       profile: :stacklab_proof,
+       default_trace_level: :detailed_proof,
+       required_trace_level: :detailed_proof,
+       allowed_trace_levels: @trace_levels,
+       required_event_kinds: @stacklab_proof_required_event_kinds,
+       requires_detailed_proof?: true,
+       production_default?: false
+     }}
+  end
+
+  def trace_level_policy(profile) when is_binary(profile) do
+    case Enum.find(@trace_profiles, &(Atom.to_string(&1) == profile)) do
+      nil -> {:error, {:invalid_replay_field, :trace_profile}}
+      atom -> trace_level_policy(atom)
+    end
+  end
+
+  def trace_level_policy(_profile), do: {:error, {:invalid_replay_field, :trace_profile}}
 
   @spec lineage_replay_event(map() | LineageReplayEvent.t()) ::
           {:ok, LineageReplayEvent.t()} | {:error, term()}

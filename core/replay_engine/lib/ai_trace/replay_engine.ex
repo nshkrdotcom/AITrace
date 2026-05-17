@@ -49,6 +49,8 @@ defmodule AITrace.ReplayEngine do
     with {:ok, normalized} <- ReplayContracts.lineage_replay_events(events),
          :ok <- unique_event_refs(normalized),
          :ok <- required_event_kinds(normalized, Keyword.get(opts, :required_event_kinds, [])),
+         {:ok, trace_policy} <- trace_level_policy(opts),
+         :ok <- trace_level_policy_satisfied(normalized, trace_policy),
          :ok <- complete_predecessors(normalized),
          {:ok, causal_order} <- causal_order(normalized) do
       emit_projection = reduce_lineage_projection(normalized)
@@ -60,6 +62,7 @@ defmodule AITrace.ReplayEngine do
          emit_order_event_refs: Enum.map(normalized, & &1.event_ref),
          causal_order_event_refs: Enum.map(causal_order, & &1.event_ref),
          trace_level_expectations: trace_level_expectations(normalized),
+         trace_level_policy: trace_level_policy_summary(trace_policy),
          order_diverged?:
            Enum.map(normalized, & &1.event_ref) != Enum.map(causal_order, & &1.event_ref),
          projection_outputs: %{
@@ -75,6 +78,70 @@ defmodule AITrace.ReplayEngine do
   end
 
   def replay_lineage_events(_events, _opts), do: {:error, :invalid_lineage_replay_events}
+
+  defp trace_level_policy(opts) do
+    case Keyword.get(opts, :trace_profile) do
+      nil -> {:ok, nil}
+      profile -> ReplayContracts.trace_level_policy(profile)
+    end
+  end
+
+  defp trace_level_policy_satisfied(_events, nil), do: :ok
+
+  defp trace_level_policy_satisfied(events, policy) do
+    with :ok <- allowed_trace_levels(events, policy),
+         :ok <- required_trace_level_present(events, policy) do
+      required_trace_level_event_kinds(events, policy)
+    end
+  end
+
+  defp allowed_trace_levels(events, policy) do
+    case Enum.find(events, &(&1.trace_level not in policy.allowed_trace_levels)) do
+      nil -> :ok
+      event -> {:error, {:disallowed_trace_level, policy.profile, event.trace_level}}
+    end
+  end
+
+  defp required_trace_level_present(events, policy) do
+    if Enum.any?(events, &(&1.trace_level == policy.required_trace_level)) do
+      :ok
+    else
+      {:error, {:missing_trace_level, policy.profile, policy.required_trace_level}}
+    end
+  end
+
+  defp required_trace_level_event_kinds(events, policy) do
+    missing =
+      Enum.reject(policy.required_event_kinds, fn event_kind ->
+        Enum.any?(
+          events,
+          &(&1.event_kind == event_kind and &1.trace_level == policy.required_trace_level)
+        )
+      end)
+
+    case missing do
+      [] ->
+        :ok
+
+      missing ->
+        {:error,
+         {:missing_trace_level_event_kinds, policy.profile, policy.required_trace_level, missing}}
+    end
+  end
+
+  defp trace_level_policy_summary(nil), do: nil
+
+  defp trace_level_policy_summary(policy) do
+    %{
+      profile: policy.profile,
+      default_trace_level: policy.default_trace_level,
+      required_trace_level: policy.required_trace_level,
+      allowed_trace_levels: policy.allowed_trace_levels,
+      required_event_kinds: policy.required_event_kinds,
+      requires_detailed_proof?: policy.requires_detailed_proof?,
+      production_default?: policy.production_default?
+    }
+  end
 
   defp normalize_request(%ReplayContracts.ReplayRequest{} = request), do: {:ok, request}
   defp normalize_request(attrs) when is_map(attrs), do: ReplayContracts.replay_request(attrs)

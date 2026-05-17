@@ -163,6 +163,36 @@ defmodule AITrace.ReplayContractsTest do
              |> ReplayContracts.lineage_replay_event()
   end
 
+  test "trace level policies distinguish StackLab proof from production default" do
+    assert ReplayContracts.trace_profiles() == [:production_default, :stacklab_proof]
+
+    assert {:ok, production} = ReplayContracts.trace_level_policy(:production_default)
+    assert production.default_trace_level == :core_lineage
+    assert production.required_trace_level == :core_lineage
+    assert production.allowed_trace_levels == [:core_lineage, :replay_minimum]
+    assert production.required_event_kinds == []
+    assert production.production_default?
+    refute production.requires_detailed_proof?
+
+    assert {:ok, proof} = ReplayContracts.trace_level_policy("stacklab_proof")
+    assert proof.default_trace_level == :detailed_proof
+    assert proof.required_trace_level == :detailed_proof
+    assert proof.allowed_trace_levels == ReplayContracts.trace_levels()
+    assert proof.requires_detailed_proof?
+    refute proof.production_default?
+
+    assert proof.required_event_kinds == [
+             :operation_requested,
+             :effect_requested,
+             :effect_receipted,
+             :receipt_reduced,
+             :projection_updated
+           ]
+
+    assert {:error, {:invalid_replay_field, :trace_profile}} =
+             ReplayContracts.trace_level_policy(:debug_dump)
+  end
+
   defp request_attrs do
     %{
       tenant_ref: "tenant://a",
