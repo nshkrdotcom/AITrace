@@ -63,6 +63,16 @@ Use ambient application config only for standalone tracing. Governed callers
 must pass explicit exporters and refs at the call site so export sinks are not
 silently selected by process configuration.
 
+The current Extravaganza cutover returns complete route evidence through the
+product command path, including trace refs. Its headless receipts currently
+report `trace_replay.status: not_emitted`; that means the product proof has
+receipt and route evidence, but has not exported a replay bundle through
+AITrace for that command. When a product claims replay proof, Mezzanine or the
+owning product path must emit AITrace events/exports that AITrace can replay.
+
+See [Generalized Stack Boundary](guides/generalized_stack.md) for the current
+repo boundary and cutover-proof posture.
+
 ## Trace Diagrams
 
 ```mermaid

@@ -67,11 +67,12 @@ defmodule AITrace.MixProject do
       logo: "assets/ai_trace.svg",
       extras: [
         "README.md",
+        "guides/generalized_stack.md",
         "CHANGELOG.md",
         "LICENSE"
       ],
       groups_for_extras: [
-        Guides: ["README.md"],
+        Guides: ["README.md", "guides/generalized_stack.md"],
         "Release Notes": ["CHANGELOG.md"],
         Legal: ["LICENSE"]
       ]
@@ -82,7 +83,7 @@ defmodule AITrace.MixProject do
     [
       name: "aitrace",
       description: description(),
-      files: ~w(lib build_support mix.exs README.md CHANGELOG.md LICENSE assets AGENTS.md),
+      files: ~w(lib build_support mix.exs README.md CHANGELOG.md LICENSE assets guides AGENTS.md),
       licenses: ["MIT"],
       links: %{
         "GitHub" => @source_url,
