@@ -492,6 +492,150 @@ defmodule AITrace.ReplayEngineTest do
              }
   end
 
+  test "lineage replay reconstructs Extravaganza destructive cleanup receipt projection" do
+    events = [
+      lineage_event("lineage://cleanup/projection-updated", :projection_updated, 90,
+        predecessor_event_refs: ["lineage://cleanup/receipt-reduced"],
+        projection_key: "projection://extravaganza/github-cleanup/product-cleanup",
+        projection_order_key: "cleanup:090",
+        merge_semantics: :last_write_by_causal_order,
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://cleanup/effect-requested", :effect_requested, 60,
+        predecessor_event_refs: ["lineage://cleanup/credential-lease"],
+        projection_key: "projection://extravaganza/github-cleanup/provider-facts",
+        projection_order_key: "cleanup:060",
+        merge_semantics: :map_merge_by_key,
+        trace_level: :core_lineage,
+        metadata_refs: %{
+          projection_entries: %{
+            "operation" => "github.pr.branch_cleanup",
+            "provider" => "github",
+            "resource_effect_role_ref" => "proposed_change_cleanup"
+          }
+        }
+      ),
+      lineage_event("lineage://cleanup/command", :command_recorded, 10,
+        root_event?: true,
+        projection_visible?: false,
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://cleanup/workflow", :workflow_started, 20,
+        predecessor_event_refs: ["lineage://cleanup/command"],
+        projection_visible?: false,
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://cleanup/operation-requested", :operation_requested, 30,
+        predecessor_event_refs: ["lineage://cleanup/workflow"],
+        projection_key: "projection://extravaganza/github-cleanup/operations",
+        projection_order_key: "cleanup:030",
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://cleanup/manifest", :jido_manifest_resolved, 40,
+        predecessor_event_refs: ["lineage://cleanup/operation-requested"],
+        projection_key: "projection://extravaganza/github-cleanup/provider-facts",
+        projection_order_key: "cleanup:040",
+        merge_semantics: :map_merge_by_key,
+        trace_level: :core_lineage,
+        metadata_refs: %{
+          projection_entries: %{
+            "connector_manifest_ref" => "manifest://jido/connectors/github@test"
+          }
+        }
+      ),
+      lineage_event("lineage://cleanup/credential-lease", :credential_lease_materialized, 50,
+        predecessor_event_refs: ["lineage://cleanup/manifest"],
+        projection_visible?: false,
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://cleanup/effect-receipted", :effect_receipted, 70,
+        predecessor_event_refs: ["lineage://cleanup/effect-requested"],
+        projection_key: "projection://extravaganza/github-cleanup/provider-facts",
+        projection_order_key: "cleanup:070",
+        merge_semantics: :map_merge_by_key,
+        trace_level: :core_lineage,
+        metadata_refs: %{
+          projection_entries: %{
+            "closed_pull_numbers" => [57],
+            "provider_object_ref" => "https://github.com/nshkrdotcom/test/pull/57"
+          }
+        }
+      ),
+      lineage_event("lineage://cleanup/receipt-reduced", :receipt_reduced, 80,
+        predecessor_event_refs: ["lineage://cleanup/effect-receipted"],
+        projection_key: "projection://extravaganza/github-cleanup/receipts",
+        projection_order_key: "cleanup:080",
+        merge_semantics: :append_by_projection_order,
+        trace_level: :core_lineage
+      ),
+      lineage_event("lineage://cleanup/replay-exported", :replay_exported, 100,
+        predecessor_event_refs: ["lineage://cleanup/projection-updated"],
+        projection_visible?: false,
+        trace_level: :replay_minimum
+      )
+    ]
+
+    assert {:ok, report} =
+             ReplayEngine.replay_lineage_events(events,
+               required_event_kinds: [
+                 :command_recorded,
+                 :workflow_started,
+                 :operation_requested,
+                 :jido_manifest_resolved,
+                 :credential_lease_materialized,
+                 :effect_requested,
+                 :effect_receipted,
+                 :receipt_reduced,
+                 :projection_updated,
+                 :replay_exported
+               ]
+             )
+
+    assert report.replay_complete? == true
+    assert report.projection_diverged? == false
+
+    assert report.causal_order_event_refs == [
+             "lineage://cleanup/command",
+             "lineage://cleanup/workflow",
+             "lineage://cleanup/operation-requested",
+             "lineage://cleanup/manifest",
+             "lineage://cleanup/credential-lease",
+             "lineage://cleanup/effect-requested",
+             "lineage://cleanup/effect-receipted",
+             "lineage://cleanup/receipt-reduced",
+             "lineage://cleanup/projection-updated",
+             "lineage://cleanup/replay-exported"
+           ]
+
+    assert report.projection_outputs.causal_order[
+             "projection://extravaganza/github-cleanup/provider-facts"
+           ] == %{
+             merge_semantics: :map_merge_by_key,
+             entries: %{
+               "closed_pull_numbers" => [57],
+               "connector_manifest_ref" => "manifest://jido/connectors/github@test",
+               "operation" => "github.pr.branch_cleanup",
+               "provider" => "github",
+               "provider_object_ref" => "https://github.com/nshkrdotcom/test/pull/57",
+               "resource_effect_role_ref" => "proposed_change_cleanup"
+             },
+             event_refs: [
+               "lineage://cleanup/effect-receipted",
+               "lineage://cleanup/effect-requested",
+               "lineage://cleanup/manifest"
+             ]
+           }
+
+    assert report.projection_outputs.causal_order[
+             "projection://extravaganza/github-cleanup/product-cleanup"
+           ] == %{
+             merge_semantics: :last_write_by_causal_order,
+             causal_order: 90,
+             projection_order_key: "cleanup:090",
+             event_ref: "lineage://cleanup/projection-updated"
+           }
+  end
+
   test "lineage replay reconstructs a neutral toy document review execution-record DAG" do
     events = [
       lineage_event("lineage://toy/review-evidence", :effect_receipted, 60,
