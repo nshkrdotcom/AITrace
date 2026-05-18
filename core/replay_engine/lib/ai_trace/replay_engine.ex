@@ -176,7 +176,7 @@ defmodule AITrace.ReplayEngine do
 
   defp same_tenant_trace(request, %Trace{} = trace) do
     case Map.get(trace.metadata, :tenant_ref) || Map.get(trace.metadata, "tenant_ref") do
-      nil -> :ok
+      nil -> {:error, :missing_source_trace_tenant_ref}
       tenant_ref when tenant_ref == request.tenant_ref -> :ok
       _tenant_ref -> {:error, :cross_tenant_replay_forbidden}
     end

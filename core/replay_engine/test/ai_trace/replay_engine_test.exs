@@ -3,6 +3,8 @@ defmodule AITrace.ReplayEngineTest do
 
   alias AITrace.{ReplayEngine, Span, Trace}
 
+  @moduletag :tenant_replay
+
   test "clean replay reconstructs deterministic replay spans without side effects" do
     trace = source_trace()
 
@@ -22,6 +24,11 @@ defmodule AITrace.ReplayEngineTest do
   test "missing, unauthorized, cross-tenant, and live-effect replay fail closed" do
     assert {:error, :missing_source_trace} =
              ReplayEngine.replay(request_attrs(), trace_store: %{})
+
+    assert {:error, :missing_source_trace_tenant_ref} =
+             ReplayEngine.replay(request_attrs(),
+               trace_store: %{"trace-source-a" => Trace.new("trace-source-a")}
+             )
 
     assert {:error, :unauthorized_replay} =
              ReplayEngine.replay(request_attrs(),
