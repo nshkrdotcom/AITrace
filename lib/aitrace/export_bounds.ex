@@ -8,6 +8,8 @@ defmodule AITrace.ExportBounds do
   shaped fields and oversize values are replaced with hashed spillover refs.
   """
 
+  alias GroundPlane.Boundary.Codec, as: BoundaryCodec
+
   @schema_version "aitrace.export_bounds.v1"
   @max_attributes_per_map 32
   @max_key_bytes 64
@@ -17,6 +19,19 @@ defmodule AITrace.ExportBounds do
   @redaction_policy_ref "aitrace.export_bounds.redact_hash.v1"
   @spillover_policy "aitrace.export_spillover.sha256_ref.v1"
   @overflow_safe_action "spill_to_artifact_ref"
+  @boundary_sensitive_keys ~w(
+    access_token
+    api_key
+    client_secret
+    credential_material
+    material
+    private_key
+    raw_credential
+    refresh_token
+    secret
+    token
+    webhook_secret
+  )
 
   @blocked_field_fragments ~w(
     access_token
@@ -320,7 +335,9 @@ defmodule AITrace.ExportBounds do
 
   defp blocked_key?(key) do
     normalized = String.downcase(key)
-    normalized == "raw" or Enum.any?(@blocked_field_fragments, &String.contains?(normalized, &1))
+
+    normalized == "raw" or normalized in @boundary_sensitive_keys or
+      Enum.any?(@blocked_field_fragments, &String.contains?(normalized, &1))
   end
 
   defp spill_ref(value, surface, reason) do
@@ -341,11 +358,74 @@ defmodule AITrace.ExportBounds do
   end
 
   defp canonical_encode(value) do
-    case Jason.encode(value) do
-      {:ok, encoded} -> encoded
-      {:error, _reason} -> :erlang.term_to_binary(value)
-    end
+    value
+    |> spill_hash_shape()
+    |> BoundaryCodec.encode!()
   end
+
+  defp spill_hash_shape(nil), do: %{"type" => "nil"}
+
+  defp spill_hash_shape(value) when is_boolean(value),
+    do: %{"type" => "boolean", "value" => value}
+
+  defp spill_hash_shape(value) when is_integer(value),
+    do: %{"type" => "integer", "value" => value}
+
+  defp spill_hash_shape(value) when is_float(value),
+    do: %{"type" => "float", "text" => :erlang.float_to_binary(value, [:short])}
+
+  defp spill_hash_shape(value) when is_binary(value),
+    do: %{"type" => "binary", "byte_size" => byte_size(value)}
+
+  defp spill_hash_shape(value) when is_atom(value),
+    do: %{"type" => "atom", "text" => Atom.to_string(value)}
+
+  defp spill_hash_shape(%DateTime{} = value),
+    do: %{"type" => "datetime", "text" => DateTime.to_iso8601(value)}
+
+  defp spill_hash_shape(value) when is_list(value) do
+    %{
+      "type" => "list",
+      "length" => length(value),
+      "items" => Enum.map(Enum.take(value, @max_collection_items), &spill_hash_shape/1)
+    }
+  end
+
+  defp spill_hash_shape(value) when is_tuple(value) do
+    items =
+      value
+      |> Tuple.to_list()
+      |> Enum.map(&spill_hash_shape/1)
+
+    %{"type" => "tuple", "tuple_size" => tuple_size(value), "items" => items}
+  end
+
+  defp spill_hash_shape(%_struct{} = value),
+    do: %{"type" => "struct", "module" => value.__struct__ |> Module.split() |> Enum.join(".")}
+
+  defp spill_hash_shape(value) when is_map(value) do
+    safe_entries =
+      value
+      |> Enum.map(fn {key, nested_value} ->
+        {to_string(key), spill_hash_shape(nested_value)}
+      end)
+      |> Enum.reject(fn {key, _nested_value} ->
+        blocked_key?(key) or key in @boundary_sensitive_keys
+      end)
+      |> Enum.take(@max_collection_items)
+      |> Map.new()
+
+    %{
+      "type" => "map",
+      "entry_count" => map_size(value),
+      "safe_entries" => safe_entries
+    }
+  end
+
+  defp spill_hash_shape(value) when is_pid(value), do: %{"type" => "pid"}
+  defp spill_hash_shape(value) when is_reference(value), do: %{"type" => "reference"}
+  defp spill_hash_shape(value) when is_port(value), do: %{"type" => "port"}
+  defp spill_hash_shape(value) when is_function(value), do: %{"type" => "function"}
 
   defp sha256(content) do
     :crypto.hash(:sha256, content)

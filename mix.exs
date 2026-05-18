@@ -42,6 +42,7 @@ defmodule AITrace.MixProject do
 
   defp deps do
     [
+      DependencySources.dep(:ground_plane_contracts, __DIR__, override: true),
       {:jason, "~> 1.4"},
       {:ex_doc, "~> 0.40.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

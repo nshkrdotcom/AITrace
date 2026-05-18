@@ -15,6 +15,17 @@ repo_root = Path.expand("..", __DIR__)
       hex: "~> 0.1.0",
       default_order: [:path, :github, :hex],
       publish_order: [:hex]
+    },
+    ground_plane_contracts: %{
+      path: Path.expand("../ground_plane/core/ground_plane_contracts", repo_root),
+      github: %{
+        repo: "nshkrdotcom/ground_plane",
+        branch: "main",
+        subdir: "core/ground_plane_contracts"
+      },
+      hex: "~> 0.1.0",
+      default_order: [:path, :github, :hex],
+      publish_order: [:hex]
     }
   }
 }

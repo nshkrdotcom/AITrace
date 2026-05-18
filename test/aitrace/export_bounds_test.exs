@@ -29,6 +29,7 @@ defmodule AITrace.ExportBoundsTest do
           memory_body: "raw memory",
           budget_amount: 500_000,
           guard_violation_payload: "raw guard",
+          token: "raw token",
           safe_ref: "trace://safe"
         },
         surface: :span_attributes
@@ -38,7 +39,24 @@ defmodule AITrace.ExportBoundsTest do
     refute Map.has_key?(bounded, "memory_body")
     refute Map.has_key?(bounded, "budget_amount")
     refute Map.has_key?(bounded, "guard_violation_payload")
-    assert bounded["_aitrace_export_overflow"]["count"] == 3
+    refute Map.has_key?(bounded, "token")
+    assert bounded["_aitrace_export_overflow"]["count"] == 4
+  end
+
+  test "unsupported spillover values become canonical safe refs" do
+    bounded =
+      ExportBounds.bound_map!(
+        %{callback: fn -> :ok end},
+        surface: :event_attributes
+      )
+
+    assert %{
+             "ref" => "aitrace://export-spillover/" <> hash,
+             "hash_algorithm" => "sha256",
+             "reason" => "unsupported_value"
+           } = bounded["callback"]
+
+    assert byte_size(hash) == 64
   end
 
   test "capture profiles keep raw payload persistence disabled" do
