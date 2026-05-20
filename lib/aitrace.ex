@@ -43,7 +43,7 @@ defmodule AITrace do
         ]
   """
 
-  alias AITrace.{Collector, Context, Event, ExportRunner, Span, Trace}
+  alias AITrace.{Collector, Context, Event, ExportProfile, ExportRunner, Span, Trace}
 
   @doc """
   Starts a new trace.
@@ -175,9 +175,9 @@ defmodule AITrace do
   This path does not write to the process dictionary. It is the preferred
   production API when context must cross task or process boundaries.
   """
-  @spec run_trace(String.t(), (Context.t() -> result)) :: result when result: var
-  def run_trace(name, fun) when is_function(fun, 1) do
-    ctx = start_trace(name)
+  @spec run_trace(String.t(), (Context.t() -> result), keyword()) :: result when result: var
+  def run_trace(name, fun, opts \\ []) when is_function(fun, 1) and is_list(opts) do
+    ctx = start_trace(name, opts)
 
     try do
       result = fun.(ctx)
@@ -259,11 +259,12 @@ defmodule AITrace do
   """
   @spec export(Trace.t()) :: :ok | {:error, term()}
   def export(%Trace{} = trace) do
-    ExportRunner.export(trace, configured_exporters())
+    export(trace, ExportProfile.boot_default())
   end
 
   @doc """
-  Exports a fully materialized trace through an explicit exporter list.
+  Exports a fully materialized trace through an explicit export profile or
+  exporter list.
 
   Use this when a caller needs one-shot export behavior without relying on
   application-configured exporters.
@@ -276,7 +277,12 @@ defmodule AITrace do
         {AITrace.Exporter.Console, verbose: true}
       ])
   """
+  @spec export(Trace.t(), ExportProfile.t()) :: :ok | {:error, term()}
   @spec export(Trace.t(), [module() | {module(), keyword() | map()}]) :: :ok | {:error, term()}
+  def export(%Trace{} = trace, %ExportProfile{} = export_profile) do
+    ExportRunner.export(trace, export_profile.exporters)
+  end
+
   def export(%Trace{} = trace, exporters) when is_list(exporters) do
     ExportRunner.export(trace, exporters)
   end
@@ -284,10 +290,13 @@ defmodule AITrace do
   # Private API functions
 
   @doc false
-  def start_trace(name) do
+  def start_trace(name, opts \\ []) do
     ctx = Context.new()
     Collector.new_trace(ctx.trace_id)
-    Context.with_metadata(ctx, %{name: name})
+
+    ctx
+    |> Context.with_metadata(%{name: name})
+    |> Context.with_export_profile(export_profile(opts))
   end
 
   @doc false
@@ -295,7 +304,7 @@ defmodule AITrace do
     trace = Collector.get_trace(ctx.trace_id)
 
     if trace do
-      _ = export(trace)
+      _ = export(trace, ctx.export_profile || ExportProfile.boot_default())
       Collector.remove_trace(ctx.trace_id)
     end
 
@@ -331,5 +340,7 @@ defmodule AITrace do
   end
 
   # Export trace to configured exporters
-  defp configured_exporters, do: Application.get_env(:aitrace, :exporters) || []
+  defp export_profile(opts) do
+    Keyword.get_lazy(opts, :export_profile, &ExportProfile.boot_default/0)
+  end
 end

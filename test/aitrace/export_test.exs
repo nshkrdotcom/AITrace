@@ -1,7 +1,7 @@
 defmodule AITrace.ExportTest do
   use ExUnit.Case, async: false
 
-  alias AITrace.{Span, Trace}
+  alias AITrace.{ExportProfile, Span, Trace}
 
   defmodule TestExporter do
     @behaviour AITrace.Exporter
@@ -72,6 +72,63 @@ defmodule AITrace.ExportTest do
     assert :ok = AITrace.export(trace, [{TestExporter, test_pid: self(), tag: :explicit}])
 
     assert_receive {:exported_trace, ^trace, %{tag: :explicit, test_pid: test_pid}}
+    assert test_pid == self()
+    assert_receive :exporter_shutdown
+    refute_received {:ambient_exported_trace, _trace, _state}
+  end
+
+  test "export profiles ignore ambient application env exporters" do
+    Application.put_env(:aitrace, :exporters, [{AmbientExporter, test_pid: self()}])
+    trace = completed_trace("trace-profile")
+    profile = ExportProfile.new(exporters: [{TestExporter, test_pid: self(), tag: :profile}])
+
+    assert :ok = AITrace.export(trace, profile)
+
+    assert_receive {:exported_trace, ^trace, %{tag: :profile, test_pid: test_pid}}
+    assert test_pid == self()
+    assert_receive :exporter_shutdown
+    refute_received {:ambient_exported_trace, _trace, _state}
+  end
+
+  test "trace context captures explicit export profile for finish" do
+    Application.put_env(:aitrace, :exporters, [{AmbientExporter, test_pid: self()}])
+    profile = ExportProfile.new(exporters: [{TestExporter, test_pid: self(), tag: :run_trace}])
+
+    assert :ok =
+             AITrace.run_trace(
+               "profiled_run",
+               fn ctx ->
+                 assert ctx.export_profile == profile
+
+                 AITrace.run_span(ctx, "profiled_span", fn span_ctx ->
+                   AITrace.with_attributes(span_ctx, %{profiled: true})
+                   :ok
+                 end)
+               end,
+               export_profile: profile
+             )
+
+    assert_receive {:exported_trace, %Trace{} = trace, %{tag: :run_trace, test_pid: test_pid}}
+    assert test_pid == self()
+    assert [_span] = trace.spans
+    assert_receive :exporter_shutdown
+    refute_received {:ambient_exported_trace, _trace, _state}
+  end
+
+  test "trace context captures boot default exporters at creation" do
+    Application.put_env(:aitrace, :exporters, [
+      {TestExporter, test_pid: self(), tag: :boot_default}
+    ])
+
+    ctx = AITrace.start_trace("boot_default_capture")
+
+    Application.put_env(:aitrace, :exporters, [{AmbientExporter, test_pid: self()}])
+
+    span_ctx = AITrace.start_span(ctx, "captured_span")
+    assert :ok = AITrace.finish_span(span_ctx)
+    assert :ok = AITrace.finish_trace(ctx)
+
+    assert_receive {:exported_trace, %Trace{}, %{tag: :boot_default, test_pid: test_pid}}
     assert test_pid == self()
     assert_receive :exporter_shutdown
     refute_received {:ambient_exported_trace, _trace, _state}

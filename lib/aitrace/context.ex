@@ -5,6 +5,7 @@ defmodule AITrace.Context do
   The Context is the core mechanism for correlating telemetry data. It contains:
   - `trace_id`: A unique identifier for the entire trace/transaction
   - `span_id`: The current span within the trace (nil if not in a span)
+  - `export_profile`: Export sinks captured when the trace context is created
   - `metadata`: Additional key-value metadata for the trace
   """
 
@@ -12,10 +13,11 @@ defmodule AITrace.Context do
           trace_id: String.t(),
           trace_id_source: map(),
           span_id: String.t() | nil,
+          export_profile: AITrace.ExportProfile.t() | nil,
           metadata: map()
         }
 
-  defstruct [:trace_id, :trace_id_source, :span_id, metadata: %{}]
+  defstruct [:trace_id, :trace_id_source, :span_id, :export_profile, metadata: %{}]
 
   @doc """
   Creates a new context with a generated trace_id.
@@ -87,6 +89,14 @@ defmodule AITrace.Context do
   @spec with_metadata(t(), map()) :: t()
   def with_metadata(%__MODULE__{} = ctx, metadata) when is_map(metadata) do
     %{ctx | metadata: Map.merge(ctx.metadata, metadata)}
+  end
+
+  @doc """
+  Returns a new context with the export profile captured for trace finish.
+  """
+  @spec with_export_profile(t(), AITrace.ExportProfile.t()) :: t()
+  def with_export_profile(%__MODULE__{} = ctx, %AITrace.ExportProfile{} = export_profile) do
+    %{ctx | export_profile: export_profile}
   end
 
   @doc """
