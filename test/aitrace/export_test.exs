@@ -155,7 +155,7 @@ defmodule AITrace.ExportTest do
     assert AITrace.Collector.authoritative_evidence?() == false
 
     assert %{
-             storage: :in_memory_agent,
+             storage: :supervised_trace_owners,
              authoritative_evidence?: false,
              safe_action: :export_required_for_authoritative_evidence
            } = AITrace.Collector.evidence_posture()

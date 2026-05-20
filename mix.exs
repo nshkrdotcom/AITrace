@@ -44,6 +44,7 @@ defmodule AITrace.MixProject do
     [
       DependencySources.dep(:ground_plane_contracts, __DIR__, override: true),
       {:jason, "~> 1.4"},
+      {:telemetry, "~> 1.3"},
       {:ex_doc, "~> 0.40.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
