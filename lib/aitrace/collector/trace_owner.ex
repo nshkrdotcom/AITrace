@@ -46,6 +46,11 @@ defmodule AITrace.Collector.TraceOwner do
     GenServer.call(pid, {:update_span, span_id, update_fn})
   end
 
+  @spec update_trace(pid(), (Trace.t() -> Trace.t())) :: :ok
+  def update_trace(pid, update_fn) when is_function(update_fn, 1) do
+    GenServer.call(pid, {:update_trace, update_fn})
+  end
+
   @spec stats(pid()) :: stats()
   def stats(pid), do: GenServer.call(pid, :stats)
 
@@ -104,6 +109,10 @@ defmodule AITrace.Collector.TraceOwner do
   def handle_call({:update_span, span_id, update_fn}, _from, state) do
     updated_spans = Enum.map(state.trace.spans, &maybe_update_span(&1, span_id, update_fn))
     {:reply, :ok, %{state | trace: %{state.trace | spans: updated_spans}}}
+  end
+
+  def handle_call({:update_trace, update_fn}, _from, state) do
+    {:reply, :ok, %{state | trace: update_fn.(state.trace)}}
   end
 
   defp maybe_update_span(%Span{span_id: span_id} = span, span_id, update_fn), do: update_fn.(span)

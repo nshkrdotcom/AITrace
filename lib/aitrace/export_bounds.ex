@@ -216,6 +216,15 @@ defmodule AITrace.ExportBounds do
     append_overflow_summary(bounded, surface, overflow_refs)
   end
 
+  @doc """
+  Redacts sensitive fields while preserving their keys as GAOP tombstones.
+  """
+  @spec tombstone_map!(map(), keyword()) :: map()
+  def tombstone_map!(metadata, opts \\ []) when is_map(metadata) and is_list(opts) do
+    max_depth = Keyword.get(opts, :max_depth, @max_map_depth + 2)
+    tombstone_map(metadata, 0, max_depth)
+  end
+
   defp bound_map(metadata, surface, depth) do
     metadata
     |> Enum.reduce({%{}, []}, fn entry, {bounded, overflow_refs} ->
@@ -357,6 +366,50 @@ defmodule AITrace.ExportBounds do
     }
   end
 
+  defp tombstone_map(metadata, depth, max_depth) do
+    metadata
+    |> Enum.map(fn {key, value} ->
+      key_string = to_string(key)
+
+      cond do
+        blocked_key?(key_string) ->
+          {key_string, tombstone(value)}
+
+        is_map(value) and depth < max_depth ->
+          {key_string, tombstone_map(value, depth + 1, max_depth)}
+
+        is_list(value) and depth < max_depth ->
+          {key_string, Enum.map(value, &tombstone_list_value(&1, depth + 1, max_depth))}
+
+        is_atom(value) ->
+          {key_string, Atom.to_string(value)}
+
+        true ->
+          {key_string, value}
+      end
+    end)
+    |> Map.new()
+  end
+
+  defp tombstone_list_value(value, depth, max_depth) when is_map(value) and depth < max_depth do
+    tombstone_map(value, depth + 1, max_depth)
+  end
+
+  defp tombstone_list_value(value, _depth, _max_depth) when is_atom(value),
+    do: Atom.to_string(value)
+
+  defp tombstone_list_value(value, _depth, _max_depth), do: value
+
+  defp tombstone(value) do
+    "[REDACTED: sha256:" <> sha256(tombstone_encode(value)) <> "]"
+  end
+
+  defp tombstone_encode(value) do
+    value
+    |> tombstone_hash_shape()
+    |> BoundaryCodec.encode!()
+  end
+
   defp canonical_encode(value) do
     value
     |> spill_hash_shape()
@@ -431,4 +484,60 @@ defmodule AITrace.ExportBounds do
     :crypto.hash(:sha256, content)
     |> Base.encode16(case: :lower)
   end
+
+  defp tombstone_hash_shape(nil), do: %{"type" => "nil"}
+
+  defp tombstone_hash_shape(value) when is_boolean(value),
+    do: %{"type" => "boolean", "value" => value}
+
+  defp tombstone_hash_shape(value) when is_integer(value),
+    do: %{"type" => "integer", "value" => value}
+
+  defp tombstone_hash_shape(value) when is_float(value),
+    do: %{"type" => "float", "text" => :erlang.float_to_binary(value, [:short])}
+
+  defp tombstone_hash_shape(value) when is_binary(value),
+    do: %{"type" => "binary", "value" => value}
+
+  defp tombstone_hash_shape(value) when is_atom(value),
+    do: %{"type" => "atom", "text" => Atom.to_string(value)}
+
+  defp tombstone_hash_shape(%DateTime{} = value),
+    do: %{"type" => "datetime", "text" => DateTime.to_iso8601(value)}
+
+  defp tombstone_hash_shape(value) when is_list(value) do
+    %{
+      "type" => "list",
+      "length" => length(value),
+      "items" => Enum.map(value, &tombstone_hash_shape/1)
+    }
+  end
+
+  defp tombstone_hash_shape(value) when is_tuple(value) do
+    items =
+      value
+      |> Tuple.to_list()
+      |> Enum.map(&tombstone_hash_shape/1)
+
+    %{"type" => "tuple", "tuple_size" => tuple_size(value), "items" => items}
+  end
+
+  defp tombstone_hash_shape(%_struct{} = value),
+    do: %{"type" => "struct", "module" => value.__struct__ |> Module.split() |> Enum.join(".")}
+
+  defp tombstone_hash_shape(value) when is_map(value) do
+    entries =
+      value
+      |> Enum.map(fn {key, nested_value} ->
+        {to_string(key), tombstone_hash_shape(nested_value)}
+      end)
+      |> Map.new()
+
+    %{"type" => "map", "entry_count" => map_size(value), "entries" => entries}
+  end
+
+  defp tombstone_hash_shape(value) when is_pid(value), do: %{"type" => "pid"}
+  defp tombstone_hash_shape(value) when is_reference(value), do: %{"type" => "reference"}
+  defp tombstone_hash_shape(value) when is_port(value), do: %{"type" => "port"}
+  defp tombstone_hash_shape(value) when is_function(value), do: %{"type" => "function"}
 end

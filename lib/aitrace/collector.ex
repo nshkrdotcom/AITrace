@@ -79,6 +79,17 @@ defmodule AITrace.Collector do
   end
 
   @doc """
+  Updates a trace within its supervised owner.
+  """
+  @spec update_trace(String.t(), (Trace.t() -> Trace.t())) :: :ok
+  def update_trace(trace_id, update_fn) when is_function(update_fn, 1) do
+    case owner(trace_id) do
+      {:ok, pid} -> safe_call(fn -> TraceOwner.update_trace(pid, update_fn) end, :ok)
+      :error -> :ok
+    end
+  end
+
+  @doc """
   Removes a trace owner from the collector.
   """
   @spec remove_trace(String.t()) :: :ok

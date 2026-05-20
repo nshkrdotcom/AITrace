@@ -56,6 +56,38 @@ defmodule AITrace.ContextTest do
       # Immutability check
       refute new_ctx == ctx
     end
+
+    test "preserves governed effect refs and export profile across span changes" do
+      profile = AITrace.ExportProfile.governed_effect()
+
+      ctx =
+        "trace_governed"
+        |> Context.new()
+        |> Context.with_export_profile(profile)
+        |> Context.with_governed_effect_refs(%{
+          effect_ref: "effect://tenant-1/effects/1",
+          command_ref: "command://tenant-1/commands/1",
+          authority_ref: "authority://tenant-1/decisions/1",
+          receipt_ref: "receipt://tenant-1/receipts/1"
+        })
+
+      span_ctx = Context.with_span_id(ctx, "span_governed")
+
+      assert span_ctx.effect_ref == "effect://tenant-1/effects/1"
+      assert span_ctx.command_ref == "command://tenant-1/commands/1"
+      assert span_ctx.authority_ref == "authority://tenant-1/decisions/1"
+      assert span_ctx.receipt_ref == "receipt://tenant-1/receipts/1"
+
+      assert Context.governed_effect_refs(span_ctx) == %{
+               effect_ref: "effect://tenant-1/effects/1",
+               command_ref: "command://tenant-1/commands/1",
+               authority_ref: "authority://tenant-1/decisions/1",
+               receipt_ref: "receipt://tenant-1/receipts/1"
+             }
+
+      assert span_ctx.export_profile.metadata.profile_ref ==
+               "aitrace.export_profile.governed_effect.v1"
+    end
   end
 
   describe "with_metadata/2" do

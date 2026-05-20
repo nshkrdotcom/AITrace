@@ -18,6 +18,21 @@ defmodule AITrace.ExportProfile do
 
   defstruct exporters: [], source: :explicit, metadata: %{}
 
+  @governed_effect_profile_ref "aitrace.export_profile.governed_effect.v1"
+  @governed_effect_included_evidence [
+    "effect_lifecycle",
+    "authority_decision",
+    "dispatch",
+    "receipt"
+  ]
+  @governed_effect_excluded_material [
+    "raw_lower_payloads",
+    "credentials",
+    "prompts",
+    "memory_bodies",
+    "provider_bodies"
+  ]
+
   @doc """
   Builds an explicit export profile.
   """
@@ -40,6 +55,29 @@ defmodule AITrace.ExportProfile do
     new(
       exporters: Application.get_env(:aitrace, :exporters) || [],
       source: :boot_default
+    )
+  end
+
+  @doc """
+  Builds the governed-effect export profile.
+  """
+  @spec governed_effect(keyword() | map()) :: t()
+  def governed_effect(attrs \\ []) do
+    attrs = normalize_attrs(attrs)
+    metadata = Map.get(attrs, :metadata, %{})
+
+    new(
+      exporters: Map.get(attrs, :exporters, []),
+      source: Map.get(attrs, :source, :explicit),
+      metadata:
+        Map.merge(metadata, %{
+          profile_ref: @governed_effect_profile_ref,
+          included_evidence: @governed_effect_included_evidence,
+          excluded_material: @governed_effect_excluded_material,
+          bounded_metadata?: true,
+          replay_attachment?: true,
+          redaction_policy_ref: "aitrace.governed_effect.redact_hash.v1"
+        })
     )
   end
 

@@ -71,6 +71,49 @@ defmodule AITrace.ExplicitContextApiTest do
     assert AITrace.get_current_context() == nil
   end
 
+  test "explicit run trace carries governed effect refs through task boundaries" do
+    refs = %{
+      effect_ref: "effect://tenant-1/effects/1",
+      command_ref: "command://tenant-1/commands/1",
+      authority_ref: "authority://tenant-1/decisions/1",
+      receipt_ref: "receipt://tenant-1/receipts/1"
+    }
+
+    profile = AITrace.ExportProfile.governed_effect(exporters: [{TestExporter, test_pid: self()}])
+
+    child_refs =
+      AITrace.run_trace(
+        "governed_effect_context",
+        fn trace_ctx ->
+          assert trace_ctx.effect_ref == refs.effect_ref
+
+          assert trace_ctx.export_profile.metadata.profile_ref ==
+                   "aitrace.export_profile.governed_effect.v1"
+
+          assert AITrace.get_current_context() == nil
+
+          AITrace.run_span(trace_ctx, "governed_parent", fn parent_ctx ->
+            task =
+              Task.async(fn ->
+                assert AITrace.get_current_context() == nil
+
+                AITrace.run_span(parent_ctx, "governed_child", fn child_ctx ->
+                  Context.governed_effect_refs(child_ctx)
+                end)
+              end)
+
+            Task.await(task)
+          end)
+        end,
+        export_profile: profile,
+        governed_effect_refs: refs
+      )
+
+    assert child_refs == refs
+    assert_receive {:exported_trace, %Trace{}, %{test_pid: test_pid}}
+    assert test_pid == self()
+  end
+
   test "trace macro clears process dictionary context after success" do
     assert AITrace.get_current_context() == nil
 

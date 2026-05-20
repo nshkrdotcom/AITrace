@@ -7,6 +7,7 @@ defmodule AITrace.Context do
   - `span_id`: The current span within the trace (nil if not in a span)
   - `export_profile`: Export sinks captured when the trace context is created
   - `runtime_identity`: Runtime identity captured when the context is created
+  - governed-effect refs: effect, command, authority, and receipt refs carried explicitly
   - `metadata`: Additional key-value metadata for the trace
   """
 
@@ -16,6 +17,10 @@ defmodule AITrace.Context do
           span_id: String.t() | nil,
           export_profile: AITrace.ExportProfile.t() | nil,
           runtime_identity: AITrace.RuntimeIdentity.snapshot(),
+          effect_ref: String.t() | nil,
+          command_ref: String.t() | nil,
+          authority_ref: String.t() | nil,
+          receipt_ref: String.t() | nil,
           metadata: map()
         }
 
@@ -25,6 +30,10 @@ defmodule AITrace.Context do
     :span_id,
     :export_profile,
     :runtime_identity,
+    :effect_ref,
+    :command_ref,
+    :authority_ref,
+    :receipt_ref,
     metadata: %{}
   ]
 
@@ -111,6 +120,46 @@ defmodule AITrace.Context do
   end
 
   @doc """
+  Returns a new context with governed-effect refs carried as explicit fields.
+  """
+  @spec with_governed_effect_refs(t(), map() | keyword()) :: t()
+  def with_governed_effect_refs(%__MODULE__{} = ctx, attrs)
+      when is_map(attrs) or is_list(attrs) do
+    refs = governed_effect_refs_from(attrs)
+
+    %{
+      ctx
+      | effect_ref: refs.effect_ref,
+        command_ref: refs.command_ref,
+        authority_ref: refs.authority_ref,
+        receipt_ref: refs.receipt_ref
+    }
+  end
+
+  @doc """
+  Returns the governed-effect refs carried by a context.
+  """
+  @spec governed_effect_refs(t()) :: map()
+  def governed_effect_refs(%__MODULE__{} = ctx) do
+    %{
+      effect_ref: ctx.effect_ref,
+      command_ref: ctx.command_ref,
+      authority_ref: ctx.authority_ref,
+      receipt_ref: ctx.receipt_ref
+    }
+  end
+
+  @doc """
+  Returns trace metadata derived from the explicit context.
+  """
+  @spec export_metadata(t()) :: map()
+  def export_metadata(%__MODULE__{} = ctx) do
+    ctx.metadata
+    |> Map.merge(reject_nil_values(governed_effect_refs(ctx)))
+    |> maybe_put_export_profile_ref(ctx.export_profile)
+  end
+
+  @doc """
   Retrieves a metadata value by key.
 
   ## Examples
@@ -129,4 +178,50 @@ defmodule AITrace.Context do
   # Delegates generated trace id ownership to AITrace.Identifier.
   @spec generate_id() :: String.t()
   def generate_id, do: AITrace.Identifier.generate(:trace)
+
+  defp governed_effect_refs_from(attrs) do
+    attrs = normalize_attrs(attrs)
+
+    %{
+      effect_ref: ref!(attrs, :effect_ref),
+      command_ref: ref!(attrs, :command_ref),
+      authority_ref: ref!(attrs, :authority_ref),
+      receipt_ref: ref!(attrs, :receipt_ref)
+    }
+  end
+
+  defp normalize_attrs(attrs) when is_map(attrs), do: attrs
+
+  defp normalize_attrs(attrs) when is_list(attrs) do
+    if Keyword.keyword?(attrs) do
+      Map.new(attrs)
+    else
+      raise ArgumentError, "governed effect refs must be a keyword list or map"
+    end
+  end
+
+  defp ref!(attrs, key) do
+    value = Map.get(attrs, key, Map.get(attrs, Atom.to_string(key)))
+
+    if is_binary(value) and String.trim(value) != "" do
+      value
+    else
+      raise ArgumentError, "#{key} must be a non-empty string"
+    end
+  end
+
+  defp reject_nil_values(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp maybe_put_export_profile_ref(metadata, %AITrace.ExportProfile{} = export_profile) do
+    case Map.get(export_profile.metadata, :profile_ref) do
+      nil -> metadata
+      profile_ref -> Map.put(metadata, :export_profile_ref, profile_ref)
+    end
+  end
+
+  defp maybe_put_export_profile_ref(metadata, _export_profile), do: metadata
 end

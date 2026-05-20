@@ -291,12 +291,16 @@ defmodule AITrace do
 
   @doc false
   def start_trace(name, opts \\ []) do
-    ctx = Context.new()
+    ctx =
+      Context.new()
+      |> Context.with_metadata(%{name: name})
+      |> Context.with_export_profile(export_profile(opts))
+      |> maybe_with_governed_effect_refs(opts)
+
     Collector.new_trace(ctx.trace_id)
+    Collector.update_trace(ctx.trace_id, &Trace.with_metadata(&1, Context.export_metadata(ctx)))
 
     ctx
-    |> Context.with_metadata(%{name: name})
-    |> Context.with_export_profile(export_profile(opts))
   end
 
   @doc false
@@ -342,5 +346,12 @@ defmodule AITrace do
   # Export trace to configured exporters
   defp export_profile(opts) do
     Keyword.get_lazy(opts, :export_profile, &ExportProfile.boot_default/0)
+  end
+
+  defp maybe_with_governed_effect_refs(%Context{} = ctx, opts) do
+    case Keyword.get(opts, :governed_effect_refs) do
+      nil -> ctx
+      refs -> Context.with_governed_effect_refs(ctx, refs)
+    end
   end
 end
