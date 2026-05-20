@@ -63,18 +63,17 @@ defmodule AITrace do
   """
   defmacro trace(name, do: block) do
     quote do
-      ctx = AITrace.start_trace(unquote(name))
-      AITrace.set_current_context(ctx)
+      previous_ctx = AITrace.get_current_context()
 
-      try do
-        result = unquote(block)
-        AITrace.finish_trace(ctx)
-        result
-      rescue
-        error ->
-          AITrace.finish_trace(ctx, :error)
-          reraise error, __STACKTRACE__
-      end
+      AITrace.run_trace(unquote(name), fn ctx ->
+        AITrace.set_current_context(ctx)
+
+        try do
+          unquote(block)
+        after
+          AITrace.restore_current_context(previous_ctx)
+        end
+      end)
     end
   end
 
@@ -97,21 +96,16 @@ defmodule AITrace do
   defmacro span(name, do: block) do
     quote do
       parent_ctx = AITrace.get_current_context()
-      ctx = AITrace.start_span(parent_ctx, unquote(name))
-      AITrace.set_current_context(ctx)
 
-      try do
-        result = unquote(block)
-        AITrace.finish_span(ctx)
-        # Restore parent context
-        AITrace.set_current_context(parent_ctx)
-        result
-      rescue
-        error ->
-          AITrace.finish_span(ctx, :error)
-          AITrace.set_current_context(parent_ctx)
-          reraise error, __STACKTRACE__
-      end
+      AITrace.run_span(parent_ctx, unquote(name), fn ctx ->
+        AITrace.set_current_context(ctx)
+
+        try do
+          unquote(block)
+        after
+          AITrace.restore_current_context(parent_ctx)
+        end
+      end)
     end
   end
 
@@ -124,10 +118,19 @@ defmodule AITrace do
       AITrace.add_event("validation_passed")
   """
   @spec add_event(String.t(), map()) :: :ok
-  def add_event(name, attributes \\ %{}) do
-    ctx = get_current_context()
+  @spec add_event(Context.t(), String.t()) :: :ok
+  @spec add_event(Context.t(), String.t(), map()) :: :ok
+  def add_event(name_or_context, name_or_attributes \\ %{})
 
-    if ctx && ctx.span_id do
+  def add_event(%Context{} = ctx, name) when is_binary(name), do: add_event(ctx, name, %{})
+
+  def add_event(name, attributes) when is_binary(name) and is_map(attributes) do
+    ctx = get_current_context()
+    add_event(ctx, name, attributes)
+  end
+
+  def add_event(%Context{} = ctx, name, attributes) when is_binary(name) and is_map(attributes) do
+    if ctx.span_id do
       event = Event.new(name, attributes)
 
       Collector.update_span(ctx.trace_id, ctx.span_id, fn span ->
@@ -138,6 +141,8 @@ defmodule AITrace do
     :ok
   end
 
+  def add_event(nil, name, attributes) when is_binary(name) and is_map(attributes), do: :ok
+
   @doc """
   Adds attributes to the current span.
 
@@ -146,16 +151,71 @@ defmodule AITrace do
       AITrace.with_attributes(%{user_id: 42, region: "us-west"})
   """
   @spec with_attributes(map()) :: :ok
-  def with_attributes(attributes) when is_map(attributes) do
-    ctx = get_current_context()
-
-    if ctx && ctx.span_id do
+  @spec with_attributes(Context.t(), map()) :: :ok
+  def with_attributes(%Context{} = ctx, attributes) when is_map(attributes) do
+    if ctx.span_id do
       Collector.update_span(ctx.trace_id, ctx.span_id, fn span ->
         Span.with_attributes(span, attributes)
       end)
     end
 
     :ok
+  end
+
+  def with_attributes(nil, attributes) when is_map(attributes), do: :ok
+
+  def with_attributes(attributes) when is_map(attributes) do
+    ctx = get_current_context()
+    with_attributes(ctx, attributes)
+  end
+
+  @doc """
+  Runs a trace with an explicit context argument.
+
+  This path does not write to the process dictionary. It is the preferred
+  production API when context must cross task or process boundaries.
+  """
+  @spec run_trace(String.t(), (Context.t() -> result)) :: result when result: var
+  def run_trace(name, fun) when is_function(fun, 1) do
+    ctx = start_trace(name)
+
+    try do
+      result = fun.(ctx)
+      finish_trace(ctx)
+      result
+    rescue
+      error ->
+        finish_trace(ctx, :error)
+        reraise error, __STACKTRACE__
+    catch
+      kind, reason ->
+        finish_trace(ctx, :error)
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
+  @doc """
+  Runs a span with an explicit parent context argument.
+
+  This path does not read or write process dictionary context.
+  """
+  @spec run_span(Context.t(), String.t(), (Context.t() -> result)) :: result when result: var
+  def run_span(%Context{} = parent_ctx, name, fun) when is_function(fun, 1) do
+    ctx = start_span(parent_ctx, name)
+
+    try do
+      result = fun.(ctx)
+      finish_span(ctx)
+      result
+    rescue
+      error ->
+        finish_span(ctx, :error)
+        reraise error, __STACKTRACE__
+    catch
+      kind, reason ->
+        finish_span(ctx, :error)
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
   end
 
   @doc """
@@ -174,6 +234,22 @@ defmodule AITrace do
     Process.put(:aitrace_context, ctx)
     :ok
   end
+
+  @doc """
+  Clears process-local context.
+  """
+  @spec clear_current_context() :: :ok
+  def clear_current_context do
+    Process.delete(:aitrace_context)
+    :ok
+  end
+
+  @doc """
+  Restores process-local context, deleting it when the previous context was nil.
+  """
+  @spec restore_current_context(Context.t() | nil) :: :ok
+  def restore_current_context(%Context{} = ctx), do: set_current_context(ctx)
+  def restore_current_context(nil), do: clear_current_context()
 
   @doc """
   Exports a fully materialized trace through the configured exporter pipeline.
