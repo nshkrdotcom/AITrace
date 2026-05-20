@@ -6,19 +6,19 @@ defmodule AITrace.Clock do
   also carry wall-clock timestamps and a clock-domain descriptor.
   """
 
-  @runtime_key {__MODULE__, :runtime_id}
-
   @spec monotonic_time() :: integer()
   def monotonic_time, do: System.monotonic_time(:microsecond)
 
   @spec wall_time() :: DateTime.t()
   def wall_time, do: DateTime.utc_now()
 
-  @spec clock_domain() :: map()
-  def clock_domain do
+  @spec clock_domain(keyword()) :: map()
+  def clock_domain(opts \\ []) do
+    runtime_identity = runtime_identity(opts)
+
     %{
-      node: Atom.to_string(node()),
-      runtime_id: runtime_id(),
+      node: runtime_identity.node,
+      runtime_id: runtime_identity.runtime_id,
       monotonic_unit: "microsecond"
     }
   end
@@ -31,15 +31,9 @@ defmodule AITrace.Clock do
   def wall_time_iso8601(nil), do: nil
   def wall_time_iso8601(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
 
-  defp runtime_id do
-    case :persistent_term.get(@runtime_key, nil) do
-      nil ->
-        id = "#{node()}:#{System.system_time(:nanosecond)}:#{System.unique_integer([:positive])}"
-        :persistent_term.put(@runtime_key, id)
-        id
-
-      id ->
-        id
-    end
+  defp runtime_identity(opts) do
+    opts
+    |> Keyword.get(:runtime_identity, AITrace.RuntimeIdentity)
+    |> AITrace.RuntimeIdentity.snapshot()
   end
 end

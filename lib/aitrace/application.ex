@@ -6,6 +6,7 @@ defmodule AITrace.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      AITrace.RuntimeIdentity,
       AITrace.Collector
     ]
 

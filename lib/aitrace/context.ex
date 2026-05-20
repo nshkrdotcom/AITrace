@@ -6,6 +6,7 @@ defmodule AITrace.Context do
   - `trace_id`: A unique identifier for the entire trace/transaction
   - `span_id`: The current span within the trace (nil if not in a span)
   - `export_profile`: Export sinks captured when the trace context is created
+  - `runtime_identity`: Runtime identity captured when the context is created
   - `metadata`: Additional key-value metadata for the trace
   """
 
@@ -14,10 +15,18 @@ defmodule AITrace.Context do
           trace_id_source: map(),
           span_id: String.t() | nil,
           export_profile: AITrace.ExportProfile.t() | nil,
+          runtime_identity: AITrace.RuntimeIdentity.snapshot(),
           metadata: map()
         }
 
-  defstruct [:trace_id, :trace_id_source, :span_id, :export_profile, metadata: %{}]
+  defstruct [
+    :trace_id,
+    :trace_id_source,
+    :span_id,
+    :export_profile,
+    :runtime_identity,
+    metadata: %{}
+  ]
 
   @doc """
   Creates a new context with a generated trace_id.
@@ -38,6 +47,7 @@ defmodule AITrace.Context do
       trace_id: trace_id,
       trace_id_source: AITrace.Identifier.source!(:trace, trace_id, :aitrace_generated),
       span_id: nil,
+      runtime_identity: AITrace.RuntimeIdentity.snapshot(),
       metadata: %{}
     }
   end
@@ -57,6 +67,7 @@ defmodule AITrace.Context do
       trace_id: trace_id,
       trace_id_source: AITrace.Identifier.source!(:trace, trace_id, :external_alias),
       span_id: nil,
+      runtime_identity: AITrace.RuntimeIdentity.snapshot(),
       metadata: %{}
     }
   end
