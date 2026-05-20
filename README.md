@@ -73,6 +73,11 @@ owning product path must emit AITrace events/exports that AITrace can replay.
 See [Generalized Stack Boundary](guides/generalized_stack.md) for the current
 repo boundary and cutover-proof posture.
 
+Maintainers should also read
+[Code Smell Remediation](guides/code_smell_remediation.md) before changing
+context propagation, export profiles, collector ownership, file export,
+replay reduction, or runtime identity.
+
 ## Trace Diagrams
 
 ```mermaid

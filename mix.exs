@@ -69,11 +69,12 @@ defmodule AITrace.MixProject do
       extras: [
         "README.md",
         "guides/generalized_stack.md",
+        "guides/code_smell_remediation.md",
         "CHANGELOG.md",
         "LICENSE"
       ],
       groups_for_extras: [
-        Guides: ["README.md", "guides/generalized_stack.md"],
+        Guides: ["README.md", "guides/generalized_stack.md", "guides/code_smell_remediation.md"],
         "Release Notes": ["CHANGELOG.md"],
         Legal: ["LICENSE"]
       ]
