@@ -120,6 +120,63 @@ defmodule AITrace.ReplayEngineTest do
            }
   end
 
+  test "lineage replay golden order fixture keeps causal append projection stable" do
+    events = [
+      lineage_event("lineage://append/root", :command_recorded, 10,
+        root_event?: true,
+        projection_visible?: false
+      ),
+      lineage_event("lineage://append/third", :effect_receipted, 40,
+        predecessor_event_refs: ["lineage://append/root"],
+        projection_key: "projection://append/golden",
+        projection_order_key: "append:030",
+        merge_semantics: :append_by_projection_order
+      ),
+      lineage_event("lineage://append/first", :effect_receipted, 20,
+        predecessor_event_refs: ["lineage://append/root"],
+        projection_key: "projection://append/golden",
+        projection_order_key: "append:010",
+        merge_semantics: :append_by_projection_order
+      ),
+      lineage_event("lineage://append/second", :effect_receipted, 30,
+        predecessor_event_refs: ["lineage://append/root"],
+        projection_key: "projection://append/golden",
+        projection_order_key: "append:020",
+        merge_semantics: :append_by_projection_order
+      )
+    ]
+
+    assert {:ok, report} = ReplayEngine.replay_lineage_events(events)
+
+    assert report.emit_order_event_refs == [
+             "lineage://append/root",
+             "lineage://append/third",
+             "lineage://append/first",
+             "lineage://append/second"
+           ]
+
+    assert report.causal_order_event_refs == [
+             "lineage://append/root",
+             "lineage://append/first",
+             "lineage://append/second",
+             "lineage://append/third"
+           ]
+
+    assert report.projection_outputs.causal_order["projection://append/golden"] == %{
+             merge_semantics: :append_by_projection_order,
+             event_refs: [
+               "lineage://append/first",
+               "lineage://append/second",
+               "lineage://append/third"
+             ],
+             ordered_event_refs: [
+               {"append:010", "lineage://append/first"},
+               {"append:020", "lineage://append/second"},
+               {"append:030", "lineage://append/third"}
+             ]
+           }
+  end
+
   test "lineage replay reports projection-visible divergence" do
     events = [
       lineage_event("lineage://root", :command_recorded, 10,
