@@ -38,13 +38,13 @@ defmodule AITrace.Exporter.FileTest do
       assert state.release_manifest_ref == "release:map"
     end
 
-    test "creates directory if it doesn't exist", %{test_dir: test_dir} do
+    test "init validates config without creating export directory", %{test_dir: test_dir} do
       dir = Path.join(test_dir, "new_dir")
       refute :filelib.is_dir(String.to_charlist(dir))
 
       {:ok, _state} = File.init(%{directory: dir})
 
-      assert :filelib.is_dir(String.to_charlist(dir))
+      refute :filelib.is_dir(String.to_charlist(dir))
     end
 
     test "defaults to ./traces directory" do
@@ -79,6 +79,27 @@ defmodule AITrace.Exporter.FileTest do
       assert data["clock_domain"]["monotonic_unit"] == "microsecond"
       assert is_list(data["spans"])
       assert length(data["spans"]) == 1
+    end
+
+    test "creates export directory at export time", %{test_dir: test_dir} do
+      dir = Path.join(test_dir, "created_on_export")
+      {:ok, state} = File.init(%{directory: dir})
+
+      refute :filelib.is_dir(String.to_charlist(dir))
+
+      assert {:ok, _state} = File.export(Trace.new("trace_created_on_export"), state)
+      assert :filelib.is_dir(String.to_charlist(dir))
+      assert length(exported_files(dir)) == 2
+    end
+
+    test "failed export leaves no final or temporary trace artifact", %{test_dir: test_dir} do
+      blocked_parent = Path.join(test_dir, "not_a_directory")
+      Elixir.File.write!(blocked_parent, "blocks child directory creation")
+      blocked_dir = Path.join(blocked_parent, "child")
+      {:ok, state} = File.init(%{directory: blocked_dir})
+
+      assert {:error, :enotdir} = File.export(Trace.new("trace_write_failure"), state)
+      assert Elixir.File.ls!(test_dir) == ["not_a_directory"]
     end
 
     test "writes durable evidence receipt with content hash and release-manifest linkage", %{
@@ -124,6 +145,63 @@ defmodule AITrace.Exporter.FileTest do
 
       assert last_export.trace_artifact_sha256 == sha256(trace_json)
       assert last_export.release_manifest_ref == "release:phase5-v7-m5"
+    end
+
+    test "directory verifier reports missing evidence receipt", %{test_dir: test_dir} do
+      {:ok, state} = File.init(%{directory: test_dir})
+
+      assert {:ok, _state} = File.export(Trace.new("trace_missing_evidence"), state)
+      evidence_path = evidence_file_path!(test_dir)
+      Elixir.File.rm!(evidence_path)
+
+      assert {:error, report} = File.verify_export_directory(test_dir)
+      assert report.code == :incomplete_export_pairs
+
+      assert report.trace_exports.missing_evidence_receipts == [
+               Path.basename(trace_file_path!(test_dir))
+             ]
+
+      assert report.trace_exports.missing_trace_artifacts == []
+    end
+
+    test "directory verifier reports missing trace artifact", %{test_dir: test_dir} do
+      {:ok, state} = File.init(%{directory: test_dir})
+
+      assert {:ok, _state} = File.export(Trace.new("trace_missing_artifact"), state)
+      trace_path = trace_file_path!(test_dir)
+      Elixir.File.rm!(trace_path)
+
+      assert {:error, report} = File.verify_export_directory(test_dir)
+      assert report.code == :incomplete_export_pairs
+      assert report.trace_exports.missing_evidence_receipts == []
+
+      assert report.trace_exports.missing_trace_artifacts == [
+               Path.basename(evidence_file_path!(test_dir))
+             ]
+    end
+
+    test "exports replay bundle with evidence and verifier coverage", %{test_dir: test_dir} do
+      {:ok, state} =
+        File.init(%{
+          directory: test_dir,
+          release_manifest_ref: "release:replay-bundle",
+          evidence_owner_ref: "evidence-owner:replay"
+        })
+
+      bundle = replay_bundle("bundle-phase57-replay")
+
+      assert {:ok, receipt} = File.export_replay_bundle(bundle, state)
+      replay_dir = Path.join(test_dir, "replay_bundles")
+
+      assert ["bundle-phase57-replay.evidence.json", "bundle-phase57-replay.json"] =
+               Enum.sort(exported_files(replay_dir))
+
+      bundle_json = Elixir.File.read!(Path.join(replay_dir, "bundle-phase57-replay.json"))
+      evidence = read_json!(Path.join(replay_dir, "bundle-phase57-replay.evidence.json"))
+
+      assert evidence["replay_bundle_artifact_sha256"] == sha256(bundle_json)
+      assert receipt.replay_bundle_artifact_sha256 == sha256(bundle_json)
+      assert {:ok, %{complete?: true}} = File.verify_export_directory(test_dir)
     end
 
     test "embeds per-node receipt and span evidence for multi-node joins", %{test_dir: test_dir} do
@@ -372,5 +450,17 @@ defmodule AITrace.Exporter.FileTest do
   defp sha256(content) do
     :crypto.hash(:sha256, content)
     |> Base.encode16(case: :lower)
+  end
+
+  defp replay_bundle(bundle_ref) do
+    %{
+      bundle_ref: bundle_ref,
+      source_trace_ref: "trace://source",
+      replay_trace_ref: "trace://replay",
+      divergence_list_ref: "divergence://phase57",
+      audit_ref: "audit://phase57",
+      redaction_policy_ref: "redaction://default",
+      release_manifest_ref: "release:replay-bundle"
+    }
   end
 end

@@ -57,9 +57,6 @@ defmodule AITrace.Exporter.File do
 
     evidence_owner_ref = Map.get(opts, :evidence_owner_ref, Map.get(opts, "evidence_owner_ref"))
 
-    # Create directory if it doesn't exist
-    File.mkdir_p!(directory)
-
     node_evidence = node_evidence_from_opts(opts)
 
     state = %{
@@ -83,7 +80,8 @@ defmodule AITrace.Exporter.File do
     filename = generate_filename(trace)
     file_path = Path.join(state.directory, filename)
 
-    with :ok <- File.write(file_path, json),
+    with :ok <- prepare_directory(state.directory),
+         :ok <- atomic_write(file_path, json),
          {:ok, evidence_receipt} <-
            write_evidence_receipt(trace, state, filename, json, exported_at_wall_time) do
       {:ok, Map.put(state, :last_export, evidence_receipt)}
@@ -100,6 +98,27 @@ defmodule AITrace.Exporter.File do
     case normalize_replay_bundle(bundle_or_attrs) do
       {:ok, bundle} -> export_normalized_replay_bundle(bundle, state)
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Verifies trace and replay bundle artifact/evidence pairs in an export directory.
+  """
+  @spec verify_export_directory(Path.t()) :: {:ok, map()} | {:error, map()}
+  def verify_export_directory(directory) when is_binary(directory) do
+    trace_exports = verify_pairs(directory)
+    replay_bundles = verify_pairs(Path.join(directory, "replay_bundles"))
+
+    report = %{
+      complete?: complete_pairs?(trace_exports) and complete_pairs?(replay_bundles),
+      trace_exports: trace_exports,
+      replay_bundles: replay_bundles
+    }
+
+    if report.complete? do
+      {:ok, report}
+    else
+      {:error, Map.put(report, :code, :incomplete_export_pairs)}
     end
   end
 
@@ -162,17 +181,13 @@ defmodule AITrace.Exporter.File do
     filename = replay_bundle_filename(bundle)
     file_path = Path.join(replay_dir, filename)
 
-    case File.mkdir_p(replay_dir) do
-      :ok ->
-        write_replay_bundle_file(file_path, bundle, state, filename, json, exported_at_wall_time)
-
-      {:error, reason} ->
-        {:error, reason}
+    with :ok <- prepare_directory(replay_dir) do
+      write_replay_bundle_file(file_path, bundle, state, filename, json, exported_at_wall_time)
     end
   end
 
   defp write_replay_bundle_file(file_path, bundle, state, filename, json, exported_at_wall_time) do
-    case File.write(file_path, json) do
+    case atomic_write(file_path, json) do
       :ok -> write_replay_bundle_evidence(bundle, state, filename, json, exported_at_wall_time)
       {:error, reason} -> {:error, reason}
     end
@@ -228,7 +243,7 @@ defmodule AITrace.Exporter.File do
 
     evidence_path = Path.join([state.directory, "replay_bundles", evidence_filename])
 
-    case File.write(evidence_path, Jason.encode!(receipt, pretty: true)) do
+    case atomic_write(evidence_path, Jason.encode!(receipt, pretty: true)) do
       :ok -> {:ok, receipt}
       {:error, reason} -> {:error, reason}
     end
@@ -274,11 +289,127 @@ defmodule AITrace.Exporter.File do
 
     evidence_path = Path.join(state.directory, evidence_filename)
 
-    case File.write(evidence_path, Jason.encode!(evidence_receipt, pretty: true)) do
+    case atomic_write(evidence_path, Jason.encode!(evidence_receipt, pretty: true)) do
       :ok -> {:ok, evidence_receipt}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp prepare_directory(directory), do: File.mkdir_p(directory)
+
+  defp atomic_write(path, content) when is_binary(path) and is_binary(content) do
+    tmp_path = temporary_path(path)
+
+    case write_synced(tmp_path, content) do
+      :ok ->
+        rename_temporary(tmp_path, path)
+
+      {:error, reason} ->
+        cleanup_temporary(tmp_path)
+        {:error, reason}
+    end
+  end
+
+  defp write_synced(path, content) do
+    case :file.open(String.to_charlist(path), [:write, :binary, :exclusive]) do
+      {:ok, file} ->
+        result =
+          case :file.write(file, content) do
+            :ok -> :file.sync(file)
+            {:error, reason} -> {:error, reason}
+          end
+
+        close_result = :file.close(file)
+        normalize_write_result(result, close_result)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp normalize_write_result(:ok, :ok), do: :ok
+  defp normalize_write_result({:error, reason}, _close_result), do: {:error, reason}
+  defp normalize_write_result(:ok, {:error, reason}), do: {:error, reason}
+
+  defp rename_temporary(tmp_path, path) do
+    case File.rename(tmp_path, path) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        cleanup_temporary(tmp_path)
+        {:error, reason}
+    end
+  end
+
+  defp cleanup_temporary(tmp_path) do
+    _ = File.rm(tmp_path)
+    :ok
+  end
+
+  defp temporary_path(path) do
+    suffix = System.unique_integer([:positive, :monotonic])
+    Path.join(Path.dirname(path), ".#{Path.basename(path)}.#{suffix}.tmp")
+  end
+
+  defp verify_pairs(directory) do
+    files = listed_files(directory)
+    artifact_files = artifact_files(files)
+    evidence_files = evidence_files(files)
+
+    %{
+      complete?:
+        missing_evidence_receipts(artifact_files, evidence_files) == [] and
+          missing_trace_artifacts(artifact_files, evidence_files) == [],
+      artifact_count: length(artifact_files),
+      evidence_count: length(evidence_files),
+      missing_evidence_receipts: missing_evidence_receipts(artifact_files, evidence_files),
+      missing_trace_artifacts: missing_trace_artifacts(artifact_files, evidence_files)
+    }
+  end
+
+  defp listed_files(directory) do
+    case File.ls(directory) do
+      {:ok, files} -> Enum.reject(files, &temporary_file?/1)
+      {:error, :enoent} -> []
+      {:error, _reason} -> []
+    end
+  end
+
+  defp artifact_files(files) do
+    files
+    |> Enum.filter(&String.ends_with?(&1, ".json"))
+    |> Enum.reject(&String.ends_with?(&1, ".evidence.json"))
+    |> Enum.sort()
+  end
+
+  defp evidence_files(files) do
+    files
+    |> Enum.filter(&String.ends_with?(&1, ".evidence.json"))
+    |> Enum.sort()
+  end
+
+  defp missing_evidence_receipts(artifact_files, evidence_files) do
+    Enum.reject(artifact_files, fn filename ->
+      evidence_filename(filename) in evidence_files
+    end)
+  end
+
+  defp missing_trace_artifacts(artifact_files, evidence_files) do
+    Enum.reject(evidence_files, fn filename ->
+      trace_filename_from_evidence(filename) in artifact_files
+    end)
+  end
+
+  defp trace_filename_from_evidence(filename) do
+    String.replace_suffix(filename, ".evidence.json", ".json")
+  end
+
+  defp temporary_file?(filename) do
+    String.starts_with?(filename, ".") and String.ends_with?(filename, ".tmp")
+  end
+
+  defp complete_pairs?(%{complete?: complete?}), do: complete?
 
   defp evidence_receipt(
          %Trace{} = trace,
