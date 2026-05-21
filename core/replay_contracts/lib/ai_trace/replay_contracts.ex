@@ -27,6 +27,8 @@ defmodule AITrace.ReplayContracts do
   @decision_classes [:clean, :diverged, :denied, :inconclusive]
   @cost_classes [:replay]
   @trace_profiles [:production_default, :stacklab_proof]
+  @agent_export_schema_ref "schema://aitrace/agent-evidence-export/v1"
+  @agent_export_profiles [:summary, :redacted_replay, :full_local_debug]
   @lineage_event_kinds [
     :semantic_intent,
     :semantic_normalized,
@@ -109,6 +111,15 @@ defmodule AITrace.ReplayContracts do
     :causal_order,
     :merge_semantics,
     :trace_level
+  ]
+  @agent_export_required [
+    :export_ref,
+    :trace_ref,
+    :ledger_ref,
+    :authority_ref,
+    :payload_hash,
+    :redaction_manifest_ref,
+    :schema_ref
   ]
   @raw_payload_keys [
     :body,
@@ -292,6 +303,45 @@ defmodule AITrace.ReplayContracts do
           }
   end
 
+  defmodule AgentEvidenceExport do
+    @moduledoc "Bounded agent evidence export receipt tied to ledger and runtime receipts."
+    @enforce_keys [
+      :export_ref,
+      :trace_ref,
+      :ledger_ref,
+      :runtime_receipt_refs,
+      :authority_ref,
+      :export_profile,
+      :payload_hash,
+      :redaction_manifest_ref,
+      :exported_at,
+      :schema_ref,
+      :ledger_seq_from,
+      :ledger_seq_to,
+      :event_count,
+      :authoritative?
+    ]
+    defstruct @enforce_keys ++ [durable_export_receipt_ref: nil]
+
+    @type t :: %__MODULE__{
+            export_ref: String.t(),
+            trace_ref: String.t(),
+            ledger_ref: String.t(),
+            runtime_receipt_refs: [String.t()],
+            authority_ref: String.t(),
+            export_profile: atom(),
+            payload_hash: String.t(),
+            redaction_manifest_ref: String.t(),
+            exported_at: DateTime.t(),
+            schema_ref: String.t(),
+            ledger_seq_from: non_neg_integer(),
+            ledger_seq_to: non_neg_integer(),
+            event_count: pos_integer(),
+            authoritative?: boolean(),
+            durable_export_receipt_ref: String.t() | nil
+          }
+  end
+
   @spec replay_modes() :: [atom()]
   def replay_modes, do: @replay_modes
 
@@ -309,6 +359,12 @@ defmodule AITrace.ReplayContracts do
 
   @spec trace_profiles() :: [atom()]
   def trace_profiles, do: @trace_profiles
+
+  @spec agent_export_schema_ref() :: String.t()
+  def agent_export_schema_ref, do: @agent_export_schema_ref
+
+  @spec agent_export_profiles() :: [atom()]
+  def agent_export_profiles, do: @agent_export_profiles
 
   @spec emission_modes() :: [atom()]
   def emission_modes, do: @emission_modes
@@ -397,6 +453,49 @@ defmodule AITrace.ReplayContracts do
   end
 
   def replay_bundle(_attrs), do: {:error, :invalid_replay_bundle}
+
+  @spec agent_evidence_export(map() | AgentEvidenceExport.t()) ::
+          {:ok, AgentEvidenceExport.t()} | {:error, term()}
+  def agent_evidence_export(%AgentEvidenceExport{} = export), do: {:ok, export}
+
+  def agent_evidence_export(attrs) when is_map(attrs) do
+    with :ok <- reject_raw_payload(attrs),
+         :ok <- required_strings(attrs, @agent_export_required),
+         :ok <- expected_schema(attrs),
+         {:ok, export_profile} <- member(attrs, :export_profile, @agent_export_profiles),
+         {:ok, runtime_receipt_refs} <-
+           non_empty_string_list_field(attrs, :runtime_receipt_refs),
+         {:ok, ledger_seq_from} <- non_negative_integer_field(attrs, :ledger_seq_from),
+         {:ok, ledger_seq_to} <- non_negative_integer_field(attrs, :ledger_seq_to),
+         {:ok, event_count} <- positive_integer_field(attrs, :event_count),
+         :ok <- sequence_complete(ledger_seq_from, ledger_seq_to, event_count),
+         {:ok, exported_at} <- datetime_field(attrs, :exported_at),
+         {:ok, authoritative?} <- boolean_field(attrs, :authoritative?, false),
+         {:ok, durable_export_receipt_ref} <-
+           durable_export_receipt_ref(attrs, authoritative?),
+         :ok <- payload_hash(fetch!(attrs, :payload_hash)) do
+      {:ok,
+       %AgentEvidenceExport{
+         export_ref: fetch!(attrs, :export_ref),
+         trace_ref: fetch!(attrs, :trace_ref),
+         ledger_ref: fetch!(attrs, :ledger_ref),
+         runtime_receipt_refs: runtime_receipt_refs,
+         authority_ref: fetch!(attrs, :authority_ref),
+         export_profile: export_profile,
+         payload_hash: fetch!(attrs, :payload_hash),
+         redaction_manifest_ref: fetch!(attrs, :redaction_manifest_ref),
+         exported_at: exported_at,
+         schema_ref: fetch!(attrs, :schema_ref),
+         ledger_seq_from: ledger_seq_from,
+         ledger_seq_to: ledger_seq_to,
+         event_count: event_count,
+         authoritative?: authoritative?,
+         durable_export_receipt_ref: durable_export_receipt_ref
+       }}
+    end
+  end
+
+  def agent_evidence_export(_attrs), do: {:error, :invalid_agent_evidence_export}
 
   @spec trace_level_policy(atom() | String.t()) ::
           {:ok, TraceLevelPolicy.t()} | {:error, term()}
@@ -498,6 +597,52 @@ defmodule AITrace.ReplayContracts do
   end
 
   def lineage_replay_events(_events), do: {:error, :invalid_lineage_replay_events}
+
+  defp expected_schema(attrs) do
+    case fetch(attrs, :schema_ref) do
+      @agent_export_schema_ref -> :ok
+      schema_ref -> {:error, {:schema_mismatch, schema_ref}}
+    end
+  end
+
+  defp sequence_complete(from_seq, to_seq, event_count) when to_seq >= from_seq do
+    if to_seq - from_seq + 1 == event_count do
+      :ok
+    else
+      {:error,
+       {:missing_replay_sequence, %{from_seq: from_seq, to_seq: to_seq, event_count: event_count}}}
+    end
+  end
+
+  defp sequence_complete(from_seq, to_seq, event_count) do
+    {:error,
+     {:missing_replay_sequence, %{from_seq: from_seq, to_seq: to_seq, event_count: event_count}}}
+  end
+
+  defp payload_hash("sha256:" <> hash) when byte_size(hash) == 64, do: :ok
+  defp payload_hash(_value), do: {:error, {:invalid_replay_field, :payload_hash}}
+
+  defp durable_export_receipt_ref(attrs, true) do
+    case fetch(attrs, :durable_export_receipt_ref) do
+      value when is_binary(value) ->
+        if present_string?(value) do
+          {:ok, value}
+        else
+          {:error, {:missing_replay_ref, :durable_export_receipt_ref}}
+        end
+
+      _value ->
+        {:error, {:missing_replay_ref, :durable_export_receipt_ref}}
+    end
+  end
+
+  defp durable_export_receipt_ref(attrs, false) do
+    case fetch(attrs, :durable_export_receipt_ref) do
+      nil -> {:ok, nil}
+      value when is_binary(value) -> {:ok, value}
+      _value -> {:error, {:invalid_replay_field, :durable_export_receipt_ref}}
+    end
+  end
 
   defp reject_raw_payload(attrs) do
     case Enum.find(@raw_payload_keys, &Map.has_key?(attrs, &1)) do
@@ -626,6 +771,36 @@ defmodule AITrace.ReplayContracts do
     end
   end
 
+  defp non_negative_integer_field(attrs, field) do
+    case fetch(attrs, field) do
+      value when is_integer(value) and value >= 0 -> {:ok, value}
+      _value -> {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp positive_integer_field(attrs, field) do
+    case fetch(attrs, field) do
+      value when is_integer(value) and value > 0 -> {:ok, value}
+      _value -> {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp datetime_field(attrs, field) do
+    case fetch(attrs, field) do
+      %DateTime{} = value ->
+        {:ok, value}
+
+      value when is_binary(value) ->
+        case DateTime.from_iso8601(value) do
+          {:ok, datetime, _offset} -> {:ok, datetime}
+          {:error, _reason} -> {:error, {:invalid_replay_field, field}}
+        end
+
+      _value ->
+        {:error, {:invalid_replay_field, field}}
+    end
+  end
+
   defp boolean_field(attrs, field, default) do
     case fetch(attrs, field, default) do
       value when is_boolean(value) -> {:ok, value}
@@ -676,6 +851,14 @@ defmodule AITrace.ReplayContracts do
       {:ok, values}
     else
       {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp non_empty_string_list_field(attrs, field) do
+    case string_list_field(attrs, field, []) do
+      {:ok, [_value | _rest] = values} -> {:ok, values}
+      {:ok, []} -> {:error, {:missing_replay_ref, field}}
+      error -> error
     end
   end
 

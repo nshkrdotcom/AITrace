@@ -1,6 +1,7 @@
 defmodule AITrace.ReplayContractsTest do
   use ExUnit.Case, async: true
 
+  alias AITrace.Integrations.AgentTurn
   alias AITrace.ReplayContracts
 
   test "replay requests require bounded modes and side-effect policies" do
@@ -193,6 +194,90 @@ defmodule AITrace.ReplayContractsTest do
              ReplayContracts.trace_level_policy(:debug_dump)
   end
 
+  test "agent evidence export requires ledger authority receipts redaction and hash refs" do
+    assert {:ok, export} = ReplayContracts.agent_evidence_export(agent_export_attrs())
+
+    assert export.export_ref == "agent-evidence-export://ledger-1/10-12"
+    assert export.ledger_ref == "agent-ledger://run-1"
+    assert export.runtime_receipt_refs == ["agent-runtime-receipt://run-1/tool-1"]
+    assert export.export_profile == :redacted_replay
+    assert export.payload_hash == "sha256:" <> String.duplicate("a", 64)
+    assert export.ledger_seq_from == 10
+    assert export.ledger_seq_to == 12
+    assert export.event_count == 3
+
+    assert {:error, {:missing_replay_ref, :redaction_manifest_ref}} =
+             agent_export_attrs()
+             |> Map.delete(:redaction_manifest_ref)
+             |> ReplayContracts.agent_evidence_export()
+
+    assert {:error, {:raw_replay_payload_forbidden, :raw_payload}} =
+             agent_export_attrs()
+             |> Map.put(:raw_payload, "raw lower response")
+             |> ReplayContracts.agent_evidence_export()
+  end
+
+  test "agent evidence export fails closed for schema mismatch sequence gaps and authority claims" do
+    assert {:error, {:schema_mismatch, "schema://wrong"}} =
+             agent_export_attrs()
+             |> Map.put(:schema_ref, "schema://wrong")
+             |> ReplayContracts.agent_evidence_export()
+
+    assert {:error, {:missing_replay_sequence, %{from_seq: 10, to_seq: 12, event_count: 2}}} =
+             agent_export_attrs()
+             |> Map.put(:event_count, 2)
+             |> ReplayContracts.agent_evidence_export()
+
+    assert {:error, {:missing_replay_ref, :durable_export_receipt_ref}} =
+             agent_export_attrs()
+             |> Map.put(:authoritative?, true)
+             |> ReplayContracts.agent_evidence_export()
+  end
+
+  test "agent turn mapper exports bounded event evidence only" do
+    assert {:ok, export} =
+             AgentTurn.export_receipt(%{
+               ledger_ref: "agent-ledger://run-1",
+               authority_ref: "authority://run-1",
+               trace_ref: "trace://run-1",
+               runtime_receipt_refs: ["agent-runtime-receipt://run-1/tool-1"],
+               redaction_manifest_ref: "redaction://agent/run-1",
+               events: [
+                 %{event_ref: "agent-event://run-1/10", event_kind: :conversation, seq: 10},
+                 %{
+                   event_ref: "agent-event://run-1/11",
+                   event_kind: :execution,
+                   seq: 11,
+                   runtime_receipt_ref: "agent-runtime-receipt://run-1/tool-1"
+                 },
+                 %{event_ref: "agent-event://run-1/12", event_kind: :projection, seq: 12}
+               ],
+               exported_at: ~U[2026-05-21 00:00:00Z]
+             })
+
+    assert export.ledger_seq_from == 10
+    assert export.ledger_seq_to == 12
+    assert export.event_count == 3
+    assert String.starts_with?(export.payload_hash, "sha256:")
+
+    assert {:error, {:raw_agent_turn_event_payload_forbidden, :payload}} =
+             AgentTurn.export_receipt(%{
+               ledger_ref: "agent-ledger://run-1",
+               authority_ref: "authority://run-1",
+               trace_ref: "trace://run-1",
+               runtime_receipt_refs: ["agent-runtime-receipt://run-1/tool-1"],
+               redaction_manifest_ref: "redaction://agent/run-1",
+               events: [
+                 %{
+                   event_ref: "agent-event://run-1/10",
+                   event_kind: :conversation,
+                   seq: 10,
+                   payload: "raw prompt"
+                 }
+               ]
+             })
+  end
+
   defp request_attrs do
     %{
       tenant_ref: "tenant://a",
@@ -236,6 +321,25 @@ defmodule AITrace.ReplayContractsTest do
       merge_semantics: :set_union,
       trace_level: :detailed_proof,
       metadata_refs: %{receipt_ref: "receipt://effect"}
+    }
+  end
+
+  defp agent_export_attrs do
+    %{
+      export_ref: "agent-evidence-export://ledger-1/10-12",
+      trace_ref: "trace://run-1",
+      ledger_ref: "agent-ledger://run-1",
+      runtime_receipt_refs: ["agent-runtime-receipt://run-1/tool-1"],
+      authority_ref: "authority://run-1",
+      export_profile: :redacted_replay,
+      payload_hash: "sha256:" <> String.duplicate("a", 64),
+      redaction_manifest_ref: "redaction://agent/run-1",
+      exported_at: ~U[2026-05-21 00:00:00Z],
+      schema_ref: "schema://aitrace/agent-evidence-export/v1",
+      ledger_seq_from: 10,
+      ledger_seq_to: 12,
+      event_count: 3,
+      authoritative?: false
     }
   end
 
