@@ -70,6 +70,21 @@ receipt and route evidence, but has not exported a replay bundle through
 AITrace for that command. When a product claims replay proof, Mezzanine or the
 owning product path must emit AITrace events/exports that AITrace can replay.
 
+The Synapse governed-effect lift adds `AITrace.GovernedEffectEvidence`, a
+bounded evidence helper for effect refs, authority refs, dispatch refs, receipt
+refs, trace refs, lifecycle entries, and metadata hashes. It supports the
+staged-live diagnostic proof by making provider facts data in the receipt path,
+not control-flow branches in product code. AITrace remains evidence/replay
+infrastructure; authority and durable lifecycle truth remain owned by Citadel
+and Mezzanine.
+
+The cross-stack proof command is:
+
+```bash
+cd /home/home/p/g/n/stack_lab
+MIX_ENV=test mix stack_lab.synapse.staged_live.v1 --json
+```
+
 See [Generalized Stack Boundary](guides/generalized_stack.md) for the current
 repo boundary and cutover-proof posture.
 
