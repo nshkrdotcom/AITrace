@@ -15,6 +15,7 @@ defmodule AITrace.MixProject do
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      aliases: aliases(),
       description: description(),
       package: package(),
       docs: docs(),
@@ -27,8 +28,10 @@ defmodule AITrace.MixProject do
   def cli do
     [
       preferred_envs: [
+        ci: :test,
         credo: :dev,
-        dialyzer: :dev
+        dialyzer: :dev,
+        docs: :dev
       ]
     ]
   end
@@ -45,9 +48,9 @@ defmodule AITrace.MixProject do
       DependencySources.dep(:ground_plane_contracts, __DIR__, override: true),
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.3"},
-      {:ex_doc, "~> 0.40.0", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.40.0", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -55,6 +58,20 @@ defmodule AITrace.MixProject do
     """
     The unified observability layer for the AI Control Plane, delivering full-fidelity tracing for AI agent reasoning, tool calls, and state transitions.
     """
+  end
+
+  defp aliases do
+    [
+      ci: [
+        "deps.get",
+        "format --check-formatted",
+        "compile --warnings-as-errors",
+        "test",
+        "credo --strict",
+        "dialyzer --format short",
+        "docs"
+      ]
+    ]
   end
 
   defp docs do
