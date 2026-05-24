@@ -3,7 +3,7 @@ defmodule AITrace.ExportBoundsTest do
 
   alias AITrace.ExportBounds
 
-  test "memory body and budget amount classes are explicit redaction classes" do
+  test "memory body budget and AI execution classes are explicit redaction classes" do
     assert ExportBounds.memory_body_class().safe_action == "hash_ref_or_redacted_excerpt_only"
 
     assert ExportBounds.budget_amount_class().safe_action ==
@@ -20,6 +20,15 @@ defmodule AITrace.ExportBoundsTest do
 
     assert ExportBounds.guard_violation_excerpt_class().safe_action ==
              "bounded_excerpt_only_never_raw_payload"
+
+    assert ExportBounds.context_packet_compile_class().class_ref ==
+             "aitrace.ai.context_packet_compile.v1"
+
+    assert ExportBounds.route_decision_class().class_ref == "aitrace.ai.route_decision.v1"
+    assert ExportBounds.model_call_class().class_ref == "aitrace.ai.model_call.v1"
+    assert ExportBounds.eval_verdict_class().class_ref == "aitrace.ai.eval_verdict.v1"
+    assert ExportBounds.promotion_class().class_ref == "aitrace.ai.promotion.v1"
+    assert ExportBounds.rollback_class().class_ref == "aitrace.ai.rollback.v1"
   end
 
   test "memory bodies and budget amounts spill instead of exporting inline" do
@@ -40,6 +49,27 @@ defmodule AITrace.ExportBoundsTest do
     refute Map.has_key?(bounded, "budget_amount")
     refute Map.has_key?(bounded, "guard_violation_payload")
     refute Map.has_key?(bounded, "token")
+    assert bounded["_aitrace_export_overflow"]["count"] == 4
+  end
+
+  test "eval and model raw payload fields spill instead of exporting inline" do
+    bounded =
+      ExportBounds.bound_map!(
+        %{
+          eval_payload: "raw eval payload",
+          eval_output: "raw eval output",
+          raw_eval: "raw eval",
+          model_output: "raw model output",
+          safe_ref: "trace://safe"
+        },
+        surface: :event_attributes
+      )
+
+    assert bounded["safe_ref"] == "trace://safe"
+    refute Map.has_key?(bounded, "eval_payload")
+    refute Map.has_key?(bounded, "eval_output")
+    refute Map.has_key?(bounded, "raw_eval")
+    refute Map.has_key?(bounded, "model_output")
     assert bounded["_aitrace_export_overflow"]["count"] == 4
   end
 

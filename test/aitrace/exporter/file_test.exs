@@ -180,7 +180,7 @@ defmodule AITrace.Exporter.FileTest do
              ]
     end
 
-    test "exports replay bundle with evidence and verifier coverage", %{test_dir: test_dir} do
+    test "exports replay bundle with context and model evidence joins", %{test_dir: test_dir} do
       {:ok, state} =
         File.init(%{
           directory: test_dir,
@@ -198,10 +198,27 @@ defmodule AITrace.Exporter.FileTest do
 
       bundle_json = Elixir.File.read!(Path.join(replay_dir, "bundle-phase57-replay.json"))
       evidence = read_json!(Path.join(replay_dir, "bundle-phase57-replay.evidence.json"))
+      bundle_export = Jason.decode!(bundle_json)
 
       assert evidence["replay_bundle_artifact_sha256"] == sha256(bundle_json)
       assert receipt.replay_bundle_artifact_sha256 == sha256(bundle_json)
+      assert bundle_export["context_packet_ref"] == "context-packet://phase7"
+      assert bundle_export["context_packet_hash"] == "sha256:" <> String.duplicate("b", 64)
+      assert bundle_export["route_decision_ref"] == "route-decision://phase7"
+      assert bundle_export["model_invocation_ref"] == "model-invocation://phase7"
+      assert bundle_export["model_receipt_ref"] == "model-receipt://phase7"
+      assert evidence["context_packet_ref"] == "context-packet://phase7"
+      assert evidence["model_receipt_ref"] == "model-receipt://phase7"
       assert {:ok, %{complete?: true}} = File.verify_export_directory(test_dir)
+    end
+
+    test "replay bundle rejects raw prompt and provider payloads", %{test_dir: test_dir} do
+      {:ok, state} = File.init(%{directory: test_dir})
+
+      assert {:error, {:raw_replay_bundle_payload_forbidden, :provider_payload}} =
+               replay_bundle("bundle-raw")
+               |> Map.put(:provider_payload, "raw provider payload")
+               |> File.export_replay_bundle(state)
     end
 
     test "embeds per-node receipt and span evidence for multi-node joins", %{test_dir: test_dir} do
@@ -462,5 +479,12 @@ defmodule AITrace.Exporter.FileTest do
       redaction_policy_ref: "redaction://default",
       release_manifest_ref: "release:replay-bundle"
     }
+    |> Map.merge(%{
+      context_packet_ref: "context-packet://phase7",
+      context_packet_hash: "sha256:" <> String.duplicate("b", 64),
+      route_decision_ref: "route-decision://phase7",
+      model_invocation_ref: "model-invocation://phase7",
+      model_receipt_ref: "model-receipt://phase7"
+    })
   end
 end

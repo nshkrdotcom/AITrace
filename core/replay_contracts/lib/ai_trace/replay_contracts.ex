@@ -95,6 +95,12 @@ defmodule AITrace.ReplayContracts do
     :operator_action,
     :release_manifest_ref
   ]
+  @bundle_optional_ref_fields [
+    :context_packet_ref,
+    :route_decision_ref,
+    :model_invocation_ref,
+    :model_receipt_ref
+  ]
   @divergence_required [
     :phase,
     :severity,
@@ -128,6 +134,9 @@ defmodule AITrace.ReplayContracts do
     :raw_payload,
     :prompt_body,
     :raw_prompt,
+    :eval_payload,
+    :eval_output,
+    :raw_eval,
     :memory_body,
     :raw_memory_body,
     :provider_payload,
@@ -142,6 +151,9 @@ defmodule AITrace.ReplayContracts do
     "raw_payload",
     "prompt_body",
     "raw_prompt",
+    "eval_payload",
+    "eval_output",
+    "raw_eval",
     "memory_body",
     "raw_memory_body",
     "provider_payload",
@@ -225,7 +237,14 @@ defmodule AITrace.ReplayContracts do
       :operator_action,
       :release_manifest_ref
     ]
-    defstruct @enforce_keys
+    defstruct @enforce_keys ++
+                [
+                  :context_packet_ref,
+                  :context_packet_hash,
+                  :route_decision_ref,
+                  :model_invocation_ref,
+                  :model_receipt_ref
+                ]
 
     @type t :: %__MODULE__{
             tenant_ref: String.t(),
@@ -236,6 +255,11 @@ defmodule AITrace.ReplayContracts do
             source_trace_ref: String.t(),
             replay_trace_ref: String.t(),
             divergence_refs: [String.t()],
+            context_packet_ref: String.t() | nil,
+            context_packet_hash: String.t() | nil,
+            route_decision_ref: String.t() | nil,
+            model_invocation_ref: String.t() | nil,
+            model_receipt_ref: String.t() | nil,
             decision_class: atom(),
             cost_class: atom(),
             operator_action: String.t(),
@@ -433,7 +457,9 @@ defmodule AITrace.ReplayContracts do
          :ok <- required_strings(attrs, @bundle_required -- [:decision_class, :cost_class]),
          {:ok, decision} <- member(attrs, :decision_class, @decision_classes),
          {:ok, cost_class} <- member(attrs, :cost_class, @cost_classes),
-         {:ok, divergence_refs} <- string_list_field(attrs, :divergence_refs, []) do
+         {:ok, divergence_refs} <- string_list_field(attrs, :divergence_refs, []),
+         {:ok, optional_refs} <- optional_bundle_refs(attrs),
+         {:ok, context_packet_hash} <- optional_sha256(attrs, :context_packet_hash) do
       {:ok,
        %ReplayBundle{
          tenant_ref: fetch!(attrs, :tenant_ref),
@@ -444,6 +470,11 @@ defmodule AITrace.ReplayContracts do
          source_trace_ref: fetch!(attrs, :source_trace_ref),
          replay_trace_ref: fetch!(attrs, :replay_trace_ref),
          divergence_refs: divergence_refs,
+         context_packet_ref: optional_refs[:context_packet_ref],
+         context_packet_hash: context_packet_hash,
+         route_decision_ref: optional_refs[:route_decision_ref],
+         model_invocation_ref: optional_refs[:model_invocation_ref],
+         model_receipt_ref: optional_refs[:model_receipt_ref],
          decision_class: decision,
          cost_class: cost_class,
          operator_action: fetch!(attrs, :operator_action),
@@ -804,6 +835,39 @@ defmodule AITrace.ReplayContracts do
   defp boolean_field(attrs, field, default) do
     case fetch(attrs, field, default) do
       value when is_boolean(value) -> {:ok, value}
+      _value -> {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp optional_bundle_refs(attrs) do
+    Enum.reduce_while(@bundle_optional_ref_fields, {:ok, %{}}, fn field, {:ok, acc} ->
+      case optional_ref(attrs, field) do
+        {:ok, value} -> {:cont, {:ok, Map.put(acc, field, value)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp optional_ref(attrs, field) do
+    case fetch(attrs, field) do
+      nil -> {:ok, nil}
+      value when is_binary(value) -> optional_present_ref(value, field)
+      _value -> {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp optional_present_ref(value, field) do
+    if present_string?(value) do
+      {:ok, value}
+    else
+      {:error, {:missing_replay_ref, field}}
+    end
+  end
+
+  defp optional_sha256(attrs, field) do
+    case fetch(attrs, field) do
+      nil -> {:ok, nil}
+      "sha256:" <> hash = value when byte_size(hash) == 64 -> {:ok, value}
       _value -> {:error, {:invalid_replay_field, field}}
     end
   end

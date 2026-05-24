@@ -17,7 +17,10 @@ defmodule AITrace.AIPlatform do
   ]
   @raw_payload_keys [
     :body,
+    :eval_output,
+    :eval_payload,
     :raw_body,
+    :raw_eval,
     :memory_body,
     :raw_memory_body,
     :prompt_body,
@@ -25,6 +28,7 @@ defmodule AITrace.AIPlatform do
     :guard_violation_body,
     :guard_violation_payload,
     :provider_payload,
+    :provider_response,
     :model_output,
     :replay_divergence_excerpt,
     :raw_guard,
@@ -32,7 +36,10 @@ defmodule AITrace.AIPlatform do
     :token,
     :budget_amount,
     "body",
+    "eval_output",
+    "eval_payload",
     "raw_body",
+    "raw_eval",
     "memory_body",
     "raw_memory_body",
     "prompt_body",
@@ -40,6 +47,7 @@ defmodule AITrace.AIPlatform do
     "guard_violation_body",
     "guard_violation_payload",
     "provider_payload",
+    "provider_response",
     "model_output",
     "replay_divergence_excerpt",
     "raw_guard",
@@ -135,6 +143,81 @@ defmodule AITrace.AIPlatform do
     end
   end
 
+  @spec context_packet_compile_span(map()) :: {:ok, Span.t()} | {:error, term()}
+  def context_packet_compile_span(attrs) when is_map(attrs) do
+    class = ExportBounds.context_packet_compile_class()
+
+    with :ok <-
+           required_refs(attrs, [
+             :tenant_ref,
+             :trace_ref,
+             :context_packet_ref,
+             :context_packet_hash
+           ]),
+         {:ok, bounded} <- bounded_attrs(attrs, trace_class_additions(class)) do
+      {:ok, Span.new("context_packet.compile") |> Span.with_attributes(bounded)}
+    end
+  end
+
+  @spec route_decision_span(map()) :: {:ok, Span.t()} | {:error, term()}
+  def route_decision_span(attrs) when is_map(attrs) do
+    class = ExportBounds.route_decision_class()
+
+    with :ok <-
+           required_refs(attrs, [:tenant_ref, :trace_ref, :route_decision_ref, :route_policy_ref]),
+         {:ok, bounded} <- bounded_attrs(attrs, trace_class_additions(class)) do
+      {:ok, Span.new("route.decide") |> Span.with_attributes(bounded)}
+    end
+  end
+
+  @spec model_call_span(map()) :: {:ok, Span.t()} | {:error, term()}
+  def model_call_span(attrs) when is_map(attrs) do
+    class = ExportBounds.model_call_class()
+
+    with :ok <-
+           required_refs(attrs, [
+             :tenant_ref,
+             :trace_ref,
+             :model_invocation_ref,
+             :model_profile_ref,
+             :provider_ref,
+             :endpoint_ref
+           ]),
+         {:ok, bounded} <- bounded_attrs(attrs, trace_class_additions(class)) do
+      {:ok, Span.new("model.call") |> Span.with_attributes(bounded)}
+    end
+  end
+
+  @spec eval_verdict_event(map()) :: {:ok, Event.t()} | {:error, term()}
+  def eval_verdict_event(attrs) when is_map(attrs) do
+    class = ExportBounds.eval_verdict_class()
+
+    with :ok <- required_refs(attrs, [:tenant_ref, :trace_ref, :eval_verdict_ref]),
+         {:ok, bounded} <- bounded_attrs(attrs, trace_class_additions(class)) do
+      {:ok, Event.new("eval.verdict", bounded)}
+    end
+  end
+
+  @spec promotion_event(map()) :: {:ok, Event.t()} | {:error, term()}
+  def promotion_event(attrs) when is_map(attrs) do
+    class = ExportBounds.promotion_class()
+
+    with :ok <- required_refs(attrs, [:tenant_ref, :authority_ref, :trace_ref, :promotion_ref]),
+         {:ok, bounded} <- bounded_attrs(attrs, trace_class_additions(class)) do
+      {:ok, Event.new("adaptive.promote", bounded)}
+    end
+  end
+
+  @spec rollback_event(map()) :: {:ok, Event.t()} | {:error, term()}
+  def rollback_event(attrs) when is_map(attrs) do
+    class = ExportBounds.rollback_class()
+
+    with :ok <- required_refs(attrs, [:tenant_ref, :authority_ref, :trace_ref, :rollback_ref]),
+         {:ok, bounded} <- bounded_attrs(attrs, trace_class_additions(class)) do
+      {:ok, Event.new("adaptive.rollback", bounded)}
+    end
+  end
+
   @spec replay_event(atom(), map()) :: {:ok, Event.t()} | {:error, term()}
   def replay_event(event, attrs) when event in @replay_events and is_map(attrs) do
     with {:ok, bounded} <- bounded_attrs(attrs, %{event_class: Atom.to_string(event)}) do
@@ -143,6 +226,21 @@ defmodule AITrace.AIPlatform do
   end
 
   def replay_event(event, _attrs), do: {:error, {:invalid_replay_event, event}}
+
+  defp required_refs(attrs, refs) do
+    case Enum.find(refs, &(not present_ref?(fetch(attrs, &1)))) do
+      nil -> :ok
+      ref -> {:error, {:missing_ai_platform_trace_ref, ref}}
+    end
+  end
+
+  defp trace_class_additions(class) do
+    %{
+      trace_class_ref: class.class_ref,
+      redaction_policy_ref: class.redaction_policy_ref,
+      trace_safe_action: class.safe_action
+    }
+  end
 
   defp bounded_attrs(attrs, additions) do
     with :ok <- reject_raw_payload(attrs) do
@@ -191,4 +289,8 @@ defmodule AITrace.AIPlatform do
       key -> {:error, {:raw_ai_platform_trace_payload_forbidden, key}}
     end
   end
+
+  defp present_ref?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_ref?(_value), do: false
+  defp fetch(attrs, field), do: Map.get(attrs, field) || Map.get(attrs, Atom.to_string(field))
 end

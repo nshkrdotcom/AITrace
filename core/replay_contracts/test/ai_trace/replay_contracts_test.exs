@@ -51,6 +51,11 @@ defmodule AITrace.ReplayContractsTest do
                source_trace_ref: "trace://source",
                replay_trace_ref: "trace://replay/1",
                divergence_refs: ["replay-divergence://1"],
+               context_packet_ref: "context-packet://a",
+               context_packet_hash: "sha256:" <> String.duplicate("b", 64),
+               route_decision_ref: "route-decision://a",
+               model_invocation_ref: "model-invocation://a",
+               model_receipt_ref: "model-receipt://a",
                decision_class: :diverged,
                cost_class: :replay,
                operator_action: "review",
@@ -58,11 +63,22 @@ defmodule AITrace.ReplayContractsTest do
              })
 
     assert bundle.cost_class == :replay
+    assert bundle.context_packet_ref == "context-packet://a"
+    assert bundle.context_packet_hash == "sha256:" <> String.duplicate("b", 64)
+    assert bundle.route_decision_ref == "route-decision://a"
+    assert bundle.model_invocation_ref == "model-invocation://a"
+    assert bundle.model_receipt_ref == "model-receipt://a"
 
     assert {:error, {:invalid_replay_field, :cost_class}} =
              bundle
              |> Map.from_struct()
              |> Map.put(:cost_class, :production)
+             |> ReplayContracts.replay_bundle()
+
+    assert {:error, {:invalid_replay_field, :context_packet_hash}} =
+             bundle
+             |> Map.from_struct()
+             |> Map.put(:context_packet_hash, "not-sha")
              |> ReplayContracts.replay_bundle()
   end
 

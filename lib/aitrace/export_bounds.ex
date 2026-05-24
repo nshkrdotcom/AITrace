@@ -40,11 +40,14 @@ defmodule AITrace.ExportBounds do
     budget_amount
     cost_amount
     credential
+    eval_output
+    eval_payload
     guard_payload
     guard_violation_body
     guard_violation_payload
     memory_body
     memory_content
+    model_output
     password
     payload_body
     prompt_body
@@ -53,6 +56,7 @@ defmodule AITrace.ExportBounds do
     provider_body
     provider_response
     replay_divergence_excerpt
+    raw_eval
     raw_memory
     raw_guard
     raw_payload
@@ -209,6 +213,66 @@ defmodule AITrace.ExportBounds do
     }
   end
 
+  @spec context_packet_compile_class() :: map()
+  def context_packet_compile_class do
+    ai_trace_class("aitrace.ai.context_packet_compile.v1", [
+      "context_packet_ref",
+      "context_packet_hash",
+      "tenant_ref",
+      "trace_ref"
+    ])
+  end
+
+  @spec route_decision_class() :: map()
+  def route_decision_class do
+    ai_trace_class("aitrace.ai.route_decision.v1", [
+      "route_decision_ref",
+      "route_policy_ref",
+      "tenant_ref",
+      "trace_ref"
+    ])
+  end
+
+  @spec model_call_class() :: map()
+  def model_call_class do
+    ai_trace_class("aitrace.ai.model_call.v1", [
+      "model_invocation_ref",
+      "model_profile_ref",
+      "provider_ref",
+      "endpoint_ref",
+      "trace_ref"
+    ])
+  end
+
+  @spec eval_verdict_class() :: map()
+  def eval_verdict_class do
+    ai_trace_class("aitrace.ai.eval_verdict.v1", [
+      "eval_verdict_ref",
+      "tenant_ref",
+      "trace_ref"
+    ])
+  end
+
+  @spec promotion_class() :: map()
+  def promotion_class do
+    ai_trace_class("aitrace.ai.promotion.v1", [
+      "promotion_ref",
+      "authority_ref",
+      "tenant_ref",
+      "trace_ref"
+    ])
+  end
+
+  @spec rollback_class() :: map()
+  def rollback_class do
+    ai_trace_class("aitrace.ai.rollback.v1", [
+      "rollback_ref",
+      "authority_ref",
+      "tenant_ref",
+      "trace_ref"
+    ])
+  end
+
   @spec bound_map!(map(), keyword()) :: map()
   def bound_map!(metadata, opts \\ []) when is_map(metadata) and is_list(opts) do
     surface = Keyword.get(opts, :surface, :trace_metadata)
@@ -237,6 +301,26 @@ defmodule AITrace.ExportBounds do
       end
     end)
     |> then(fn {bounded, overflow_refs} -> {bounded, Enum.reverse(overflow_refs)} end)
+  end
+
+  defp ai_trace_class(class_ref, required_refs) do
+    %{
+      class_ref: class_ref,
+      redaction_policy_ref: @redaction_policy_ref,
+      safe_action: "bounded_refs_and_hashes_only",
+      required_refs: required_refs,
+      blocked_field_fragments: [
+        "eval_output",
+        "eval_payload",
+        "model_output",
+        "provider_body",
+        "provider_response",
+        "raw_eval",
+        "raw_payload",
+        "raw_prompt",
+        "raw_provider"
+      ]
+    }
   end
 
   defp bound_entry({key, value} = entry, bounded, overflow_refs, surface, depth) do

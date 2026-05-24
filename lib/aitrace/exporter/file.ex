@@ -211,6 +211,7 @@ defmodule AITrace.Exporter.File do
         export_persistence_posture:
           PersistencePosture.export_attributes(state.persistence_posture)
       }
+      |> put_replay_join_refs(bundle)
       |> maybe_put_node_evidence(state.node_evidence)
 
     Jason.encode!(data, pretty: true)
@@ -239,6 +240,7 @@ defmodule AITrace.Exporter.File do
         exported_at_wall_time: exported_at_wall_time,
         proof_posture: proof_posture(state)
       }
+      |> put_replay_join_refs(bundle)
       |> maybe_put_node_evidence(state.node_evidence)
 
     evidence_path = Path.join([state.directory, "replay_bundles", evidence_filename])
@@ -253,6 +255,15 @@ defmodule AITrace.Exporter.File do
     bundle.bundle_ref
     |> safe_filename_component()
     |> then(&(&1 <> ".json"))
+  end
+
+  defp put_replay_join_refs(data, %ReplayBundle{} = bundle) do
+    data
+    |> maybe_put(:context_packet_ref, bundle.context_packet_ref)
+    |> maybe_put(:context_packet_hash, bundle.context_packet_hash)
+    |> maybe_put(:route_decision_ref, bundle.route_decision_ref)
+    |> maybe_put(:model_invocation_ref, bundle.model_invocation_ref)
+    |> maybe_put(:model_receipt_ref, bundle.model_receipt_ref)
   end
 
   defp safe_filename_component(value) when is_binary(value) do

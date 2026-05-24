@@ -74,6 +74,111 @@ defmodule AITrace.AIPlatformTest do
              AIPlatform.cost_attribution_event(Map.put(attrs, :budget_amount, 10))
   end
 
+  test "AI execution spans and events carry bounded trace classes" do
+    assert {:ok, context_span} =
+             AIPlatform.context_packet_compile_span(%{
+               tenant_ref: "tenant://a",
+               authority_ref: "authority://a",
+               trace_ref: "trace://context",
+               context_packet_ref: "context-packet://a",
+               context_packet_hash: "sha256:" <> String.duplicate("a", 64)
+             })
+
+    assert context_span.name == "context_packet.compile"
+    assert context_span.attributes["trace_class_ref"] == "aitrace.ai.context_packet_compile.v1"
+    assert context_span.attributes["context_packet_ref"] == "context-packet://a"
+
+    assert {:ok, route_span} =
+             AIPlatform.route_decision_span(%{
+               tenant_ref: "tenant://a",
+               authority_ref: "authority://a",
+               trace_ref: "trace://route",
+               route_decision_ref: "route-decision://a",
+               route_policy_ref: "route-policy://a"
+             })
+
+    assert route_span.name == "route.decide"
+    assert route_span.attributes["trace_class_ref"] == "aitrace.ai.route_decision.v1"
+
+    assert {:ok, model_span} =
+             AIPlatform.model_call_span(%{
+               tenant_ref: "tenant://a",
+               authority_ref: "authority://a",
+               trace_ref: "trace://model",
+               model_invocation_ref: "model-invocation://a",
+               model_receipt_ref: "model-receipt://a",
+               model_profile_ref: "model-profile://fixture",
+               provider_ref: "provider://fixture",
+               endpoint_ref: "endpoint://fixture"
+             })
+
+    assert model_span.name == "model.call"
+    assert model_span.attributes["trace_class_ref"] == "aitrace.ai.model_call.v1"
+
+    assert {:ok, eval_event} =
+             AIPlatform.eval_verdict_event(%{
+               tenant_ref: "tenant://a",
+               trace_ref: "trace://eval",
+               eval_verdict_ref: "eval-verdict://a",
+               eval_case_ref: "eval-case://a"
+             })
+
+    assert eval_event.name == "eval.verdict"
+    assert eval_event.attributes["trace_class_ref"] == "aitrace.ai.eval_verdict.v1"
+
+    assert {:ok, promotion_event} =
+             AIPlatform.promotion_event(%{
+               tenant_ref: "tenant://a",
+               authority_ref: "authority://a",
+               trace_ref: "trace://promotion",
+               promotion_ref: "promotion://a",
+               candidate_ref: "candidate://a"
+             })
+
+    assert promotion_event.name == "adaptive.promote"
+    assert promotion_event.attributes["trace_class_ref"] == "aitrace.ai.promotion.v1"
+
+    assert {:ok, rollback_event} =
+             AIPlatform.rollback_event(%{
+               tenant_ref: "tenant://a",
+               authority_ref: "authority://a",
+               trace_ref: "trace://rollback",
+               rollback_ref: "rollback://a",
+               rollback_target_ref: "candidate://previous"
+             })
+
+    assert rollback_event.name == "adaptive.rollback"
+    assert rollback_event.attributes["trace_class_ref"] == "aitrace.ai.rollback.v1"
+  end
+
+  test "AI execution helpers reject raw payloads and missing refs" do
+    assert {:error, {:missing_ai_platform_trace_ref, :context_packet_hash}} =
+             AIPlatform.context_packet_compile_span(%{
+               tenant_ref: "tenant://a",
+               trace_ref: "trace://context",
+               context_packet_ref: "context-packet://a"
+             })
+
+    assert {:error, {:raw_ai_platform_trace_payload_forbidden, :provider_payload}} =
+             AIPlatform.model_call_span(%{
+               tenant_ref: "tenant://a",
+               trace_ref: "trace://model",
+               model_invocation_ref: "model-invocation://a",
+               model_profile_ref: "model-profile://fixture",
+               provider_ref: "provider://fixture",
+               endpoint_ref: "endpoint://fixture",
+               provider_payload: "raw provider payload"
+             })
+
+    assert {:error, {:raw_ai_platform_trace_payload_forbidden, :eval_payload}} =
+             AIPlatform.eval_verdict_event(%{
+               tenant_ref: "tenant://a",
+               trace_ref: "trace://eval",
+               eval_verdict_ref: "eval-verdict://a",
+               eval_payload: "raw eval payload"
+             })
+  end
+
   test "prompt and guard spans carry bounded refs and reject raw guard material" do
     assert {:ok, prompt_span} =
              AIPlatform.prompt_resolution_span(%{
