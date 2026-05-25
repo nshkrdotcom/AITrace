@@ -56,6 +56,10 @@ defmodule AITrace.ReplayContractsTest do
                route_decision_ref: "route-decision://a",
                model_invocation_ref: "model-invocation://a",
                model_receipt_ref: "model-receipt://a",
+               eval_verdict_ref: "eval-verdict://a",
+               failure_ref: "failure://mezzanine/" <> String.duplicate("a", 64),
+               failure_reason_code: "mezzanine.eval.golden_case_failed.v1",
+               failure_family: :eval,
                decision_class: :diverged,
                cost_class: :replay,
                operator_action: "review",
@@ -68,6 +72,10 @@ defmodule AITrace.ReplayContractsTest do
     assert bundle.route_decision_ref == "route-decision://a"
     assert bundle.model_invocation_ref == "model-invocation://a"
     assert bundle.model_receipt_ref == "model-receipt://a"
+    assert bundle.eval_verdict_ref == "eval-verdict://a"
+    assert bundle.failure_ref == "failure://mezzanine/" <> String.duplicate("a", 64)
+    assert bundle.failure_reason_code == "mezzanine.eval.golden_case_failed.v1"
+    assert bundle.failure_family == :eval
 
     assert {:error, {:invalid_replay_field, :cost_class}} =
              bundle
@@ -79,6 +87,12 @@ defmodule AITrace.ReplayContractsTest do
              bundle
              |> Map.from_struct()
              |> Map.put(:context_packet_hash, "not-sha")
+             |> ReplayContracts.replay_bundle()
+
+    assert {:error, {:invalid_replay_field, :failure_family}} =
+             bundle
+             |> Map.from_struct()
+             |> Map.put(:failure_family, :free_form)
              |> ReplayContracts.replay_bundle()
   end
 

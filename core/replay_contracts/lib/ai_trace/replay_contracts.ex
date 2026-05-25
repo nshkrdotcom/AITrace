@@ -26,6 +26,17 @@ defmodule AITrace.ReplayContracts do
   @remediation_classes [:none, :review, :rollback_prompt, :update_fixture, :operator_decision]
   @decision_classes [:clean, :diverged, :denied, :inconclusive]
   @cost_classes [:replay]
+  @failure_families [
+    :context,
+    :authority,
+    :router,
+    :model_execution,
+    :eval,
+    :memory,
+    :optimization,
+    :promotion,
+    :evidence
+  ]
   @trace_profiles [:production_default, :stacklab_proof]
   @agent_export_schema_ref "schema://aitrace/agent-evidence-export/v1"
   @agent_export_profiles [:summary, :redacted_replay, :full_local_debug]
@@ -99,7 +110,9 @@ defmodule AITrace.ReplayContracts do
     :context_packet_ref,
     :route_decision_ref,
     :model_invocation_ref,
-    :model_receipt_ref
+    :model_receipt_ref,
+    :eval_verdict_ref,
+    :failure_ref
   ]
   @divergence_required [
     :phase,
@@ -243,7 +256,11 @@ defmodule AITrace.ReplayContracts do
                   :context_packet_hash,
                   :route_decision_ref,
                   :model_invocation_ref,
-                  :model_receipt_ref
+                  :model_receipt_ref,
+                  :eval_verdict_ref,
+                  :failure_ref,
+                  :failure_reason_code,
+                  :failure_family
                 ]
 
     @type t :: %__MODULE__{
@@ -260,6 +277,10 @@ defmodule AITrace.ReplayContracts do
             route_decision_ref: String.t() | nil,
             model_invocation_ref: String.t() | nil,
             model_receipt_ref: String.t() | nil,
+            eval_verdict_ref: String.t() | nil,
+            failure_ref: String.t() | nil,
+            failure_reason_code: String.t() | nil,
+            failure_family: atom() | nil,
             decision_class: atom(),
             cost_class: atom(),
             operator_action: String.t(),
@@ -459,7 +480,9 @@ defmodule AITrace.ReplayContracts do
          {:ok, cost_class} <- member(attrs, :cost_class, @cost_classes),
          {:ok, divergence_refs} <- string_list_field(attrs, :divergence_refs, []),
          {:ok, optional_refs} <- optional_bundle_refs(attrs),
-         {:ok, context_packet_hash} <- optional_sha256(attrs, :context_packet_hash) do
+         {:ok, context_packet_hash} <- optional_sha256(attrs, :context_packet_hash),
+         {:ok, failure_reason_code} <- optional_reason_code(attrs, :failure_reason_code),
+         {:ok, failure_family} <- optional_member(attrs, :failure_family, @failure_families) do
       {:ok,
        %ReplayBundle{
          tenant_ref: fetch!(attrs, :tenant_ref),
@@ -475,6 +498,10 @@ defmodule AITrace.ReplayContracts do
          route_decision_ref: optional_refs[:route_decision_ref],
          model_invocation_ref: optional_refs[:model_invocation_ref],
          model_receipt_ref: optional_refs[:model_receipt_ref],
+         eval_verdict_ref: optional_refs[:eval_verdict_ref],
+         failure_ref: optional_refs[:failure_ref],
+         failure_reason_code: failure_reason_code,
+         failure_family: failure_family,
          decision_class: decision,
          cost_class: cost_class,
          operator_action: fetch!(attrs, :operator_action),
@@ -869,6 +896,43 @@ defmodule AITrace.ReplayContracts do
       nil -> {:ok, nil}
       "sha256:" <> hash = value when byte_size(hash) == 64 -> {:ok, value}
       _value -> {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp optional_reason_code(attrs, field) do
+    case fetch(attrs, field) do
+      nil ->
+        {:ok, nil}
+
+      value when is_binary(value) ->
+        if String.match?(value, ~r/^[a-z0-9_]+(\.[a-z0-9_]+)+\.v[0-9]+$/) do
+          {:ok, value}
+        else
+          {:error, {:invalid_replay_field, field}}
+        end
+
+      _value ->
+        {:error, {:invalid_replay_field, field}}
+    end
+  end
+
+  defp optional_member(attrs, field, allowed) do
+    case fetch(attrs, field) do
+      nil ->
+        {:ok, nil}
+
+      value when is_atom(value) ->
+        if value in allowed do
+          {:ok, value}
+        else
+          {:error, {:invalid_replay_field, field}}
+        end
+
+      value when is_binary(value) ->
+        member(%{field => value}, field, allowed)
+
+      _value ->
+        {:error, {:invalid_replay_field, field}}
     end
   end
 
