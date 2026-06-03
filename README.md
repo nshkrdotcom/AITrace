@@ -414,3 +414,59 @@ AITrace is part of the AI Control Plane ecosystem. Contributions welcome!
 ## Persistence Documentation
 
 See `docs/persistence.md` for tiers, defaults, adapters, unsupported selections, config examples, restart claims, durability claims, debug sidecar behavior, redaction guarantees, migration or preflight behavior, and no-bypass scope when applicable.
+
+## Chassis Spans
+
+Chassis emits bounded spans for deployment, provisioning, mesh, health,
+rollback, evolution, model materialization, hardware admission, and tensor
+reload events. Attributes must pass `AITrace.ExportBounds.profile/0` and carry
+refs, digests, summaries, outcomes, and bounded counts instead of raw payloads.
+
+Baseline Chassis span names include deployment accepted, adapter selected,
+provisioning started/completed, mesh joined, health checked, receipt emitted,
+and rollback triggered. Evolution and model spans are listed below.
+
+## Chassis Evolution / Model Event Names
+
+Chassis Evolution span names include:
+
+- `chassis.evolution.failure_batch.created`
+- `chassis.evolution.flag.recorded`
+- `chassis.evolution.started`
+- `chassis.evolution.coding_agent.spawned`
+- `chassis.evolution.patch.proposed`
+- `chassis.evolution.candidate.built`
+- `chassis.evolution.trial.provisioned`
+- `chassis.evolution.trial.started`
+- `chassis.evolution.trial.completed`
+- `chassis.evolution.scoring.completed`
+- `chassis.evolution.blocked`
+- `chassis.evolution.converged`
+- `chassis.evolution.promotion.requested`
+- `chassis.evolution.operator_consent.recorded`
+- `chassis.evolution.swap.started`
+- `chassis.evolution.swap.committed`
+- `chassis.evolution.swap.rolled_back`
+- `chassis.evolution.failed`
+- `chassis.evolution.status.read`
+- `chassis.evolution.candidate.read`
+
+Model, hardware, and tensor span names include:
+
+- `chassis.model.weight.materialization.started`
+- `chassis.model.weight.materialization.completed`
+- `chassis.model.weight.verify.failed`
+- `chassis.hardware.accelerator.validated`
+- `chassis.hardware.accelerator.rejected`
+- `chassis.tensor_patch.reload.started`
+- `chassis.tensor_patch.reload.completed`
+- `chassis.tensor_patch.rollback.completed`
+
+## Redaction Posture For Chassis Events
+
+Chassis events must not carry raw credentials, raw private transcript bodies,
+raw prompt payloads, raw diffs, raw provider payloads, raw model weight bytes,
+mutable filesystem state as authority, or unsafe atom values. Use refs,
+bounded summaries, digest summaries, receipt refs, trace refs, and explicit
+redaction posture fields. The detailed Chassis attribute filter rules are in
+`../j/jido_brainstorm/nshkrdotcom/docs/20260529/chassis_impl/0532_chassis_evolution_aitrace_and_observability.md`.
