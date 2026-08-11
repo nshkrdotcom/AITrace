@@ -109,8 +109,11 @@ defmodule DependencySources do
 
   def config!(repo_root \\ Path.dirname(__DIR__)) do
     case config(repo_root) do
-      {:ok, config} -> config
-      :error -> raise File.Error, reason: :enoent, action: "read file", path: config_path(repo_root)
+      {:ok, config} ->
+        config
+
+      :error ->
+        raise File.Error, reason: :enoent, action: "read file", path: config_path(repo_root)
     end
   end
 
@@ -206,13 +209,17 @@ defmodule DependencySources do
   def publish_preflight(repo_root \\ Path.dirname(__DIR__), opts \\ []) do
     repo_root = Path.expand(repo_root)
     config = config!(repo_root)
-    dependencies = normalized_deps(config)
 
     package =
       case Keyword.fetch(opts, :package) do
         {:ok, package} -> package
         :error -> current_package(repo_root)
       end
+
+    dependencies =
+      config
+      |> normalized_deps()
+      |> preflight_dependencies(package)
 
     entries =
       dependencies
@@ -395,6 +402,34 @@ defmodule DependencySources do
     :exit, reason -> {:unverified, reason}
   end
 
+  # A workspace registry can describe many sibling packages even though the
+  # currently loaded package declares only a subset of them. Publication must
+  # preflight that package's actual dependency surface; treating every registry
+  # entry as a dependency makes one unpublished, unrelated lane block all other
+  # releases in the monorepo.
+  defp preflight_dependencies(dependencies, nil), do: dependencies
+
+  defp preflight_dependencies(dependencies, _package) do
+    declared =
+      if Code.ensure_loaded?(Mix.Project) and Mix.Project.get() do
+        Mix.Project.config()
+        |> Keyword.get(:deps, [])
+        |> Enum.map(fn
+          {app, _requirement} when is_atom(app) -> app
+          {app, _requirement, _opts} when is_atom(app) -> app
+        end)
+        |> MapSet.new()
+      else
+        MapSet.new()
+      end
+
+    if MapSet.size(declared) == 0 do
+      dependencies
+    else
+      Enum.filter(dependencies, fn {app, _config} -> MapSet.member?(declared, app) end)
+    end
+  end
+
   defp missing_release_prerequisites(nil, _dependencies), do: []
 
   defp missing_release_prerequisites(package, dependencies) do
@@ -421,11 +456,7 @@ defmodule DependencySources do
     packages = Map.keys(@release_dag)
     app = mix_project_app()
 
-    if app in packages do
-      app
-    else
-      Enum.find(packages, &(Atom.to_string(&1) == Path.basename(repo_root)))
-    end
+    app || Enum.find(packages, &(Atom.to_string(&1) == Path.basename(repo_root)))
   end
 
   defp mix_project_app do

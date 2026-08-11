@@ -5,7 +5,7 @@ repo_root = Path.expand("..", __DIR__)
     aitrace: %{
       path: repo_root,
       github: %{repo: "nshkrdotcom/AITrace", branch: "main"},
-      hex: "~> 0.1.0",
+      hex: "~> 0.2.0",
       default_order: [:path, :github, :hex],
       publish_order: [:hex]
     },
