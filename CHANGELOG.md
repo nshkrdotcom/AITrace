@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-10
+
 ### Added
 - Additive one-shot export API through `AITrace.export/1` and `AITrace.export/2` so completed `AITrace.Trace` values can be exported without reimplementing exporter execution in downstream bridges.
 
@@ -15,6 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Record ATOM-08 dynamic atom audit coverage for trace, export, receipt,
   redaction, and artifact metadata surfaces. The required scan found no
   runtime atom creation hits.
+- Remove an unused default argument from the dependency-source helper so
+  compilation remains warning-free without changing source selection.
 
 ## [0.1.0] - 2025-10-29
 

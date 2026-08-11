@@ -13,7 +13,7 @@ defmodule AITrace.MixProject do
 
   @workspace_checkout? File.regular?(Path.expand("build_support/dependency_sources.exs", __DIR__))
 
-  @version "0.1.0"
+  @version "0.2.0"
   @source_url "https://github.com/nshkrdotcom/AITrace"
 
   def project do
@@ -27,6 +27,7 @@ defmodule AITrace.MixProject do
       description: description(),
       package: package(),
       docs: docs(),
+      dialyzer: [plt_core_path: "_build/plts/core"],
       name: "AITrace",
       source_url: @source_url,
       homepage_url: @source_url
@@ -53,7 +54,7 @@ defmodule AITrace.MixProject do
 
   defp deps do
     [
-      workspace_dep(:ground_plane_contracts, "~> 0.1.0", override: true),
+      workspace_dep(:ground_plane_contracts, "~> 0.1.0", []),
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.3"},
       {:ex_doc, "~> 0.40.0", only: [:dev, :test], runtime: false},
@@ -112,11 +113,10 @@ defmodule AITrace.MixProject do
     ]
   end
 
-
   # In a source checkout the registry decides the source (path first). In a
   # published package there is no registry, and the requirement stated here is
   # the whole answer.
-  defp workspace_dep(app, hex_requirement, opts \\ []) do
+  defp workspace_dep(app, hex_requirement, opts) do
     if @workspace_checkout? do
       apply(DependencySources, :dep, [app, __DIR__, opts])
     else

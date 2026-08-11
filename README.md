@@ -175,7 +175,7 @@ Add `aitrace` to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:aitrace, "~> 0.1.0"}
+    {:aitrace, "~> 0.2.0"}
   ]
 end
 ```
@@ -373,13 +373,13 @@ Trace: b37b73325dbd626481e0ff3e89de02c8
 
 ## Development Status
 
-**✅ Implemented (v0.1.0)**
+**✅ Implemented (v0.2.0)**
 - Core data structures (Context, Span, Event, Trace)
 - Trace and span macros with automatic timing
 - Event and attribute APIs
 - Console exporter (human-readable output)
 - File exporter (JSON format)
-- Comprehensive test suite (80 tests)
+- Comprehensive test suite (174 tests)
 - Working examples
 
 **🚧 Planned**
